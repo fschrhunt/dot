@@ -23,7 +23,9 @@ ln -s ~/.local/share/dot/dot ~/.local/bin/dot
 ```
 
 `~/.local/bin` must be on your `PATH`. If `command -v dot` prints nothing, add
-`export PATH="$HOME/.local/bin:$PATH"` to your shell profile and open a new shell.
+`export PATH="$HOME/.local/bin:$PATH"` to your shell profile and open a new shell. dot runs under
+whatever `python3` it starts with; if that is older than 3.11, it looks for a newer one on `PATH` and
+in the usual Homebrew folders, so a bare, non-login ssh works too.
 
 ## Start
 

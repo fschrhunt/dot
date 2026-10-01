@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fixed: dot re-execs a Python 3.11+ interpreter it finds itself (on PATH, then Homebrew's usual
+  folders), so it runs from a bare, non-login ssh where macOS's Python 3.9 is the only one on PATH.
 - First release: `status`, `apply`, `sync`, `take`, `init`, `install` and `help`, driven by one
   plan from `dot.toml`; templates with per-machine values; mirrored folders; files edited in place
   are never overwritten or deleted without `--force`.

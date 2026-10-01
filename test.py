@@ -65,6 +65,25 @@ class Dot(unittest.TestCase):
         self.git(cwd, "add", "-A")
         self.git(cwd, "commit", "-qm", message)
 
+    # Launcher
+
+    def test_reexecs_a_modern_python_when_launched_with_an_old_one(self):
+        """A bare, non-login ssh finds macOS's Python 3.9; dot must hand off to a 3.11+ one it finds."""
+        old = "/usr/bin/python3"
+        if not os.path.exists(old):
+            self.skipTest(f"{old} is missing")
+        is_old = subprocess.run([old, "-c", "import sys; sys.exit(0 if sys.version_info < (3, 11) else 1)"],
+                                capture_output=True).returncode == 0
+        if not is_old:
+            self.skipTest(f"{old} is not a working Python < 3.11")
+        self.config('[files]\n"a" = "~/a"\n', a="1")
+        bindir = self.tmp / "bin"
+        bindir.mkdir()
+        os.symlink(sys.executable, bindir / "python3")
+        r = subprocess.run([old, DOT, "apply"], env={**self.env, "PATH": str(bindir)},
+                           capture_output=True, text=True)
+        self.assertEqual((r.returncode, self.live("a")), (0, "1"))
+
     # Rendering and mapping
 
     def test_template_renders_machine_overrides(self):

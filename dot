@@ -6,9 +6,37 @@ sources it names. Every command derives one plan (write, mkdir, delete) from the
 sources, the live files and .state/written.json; `status` prints that plan, `apply` carries it out,
 and `sync` (run by a timer) fast-forwards the folder from its remote, pushes when ahead, and applies.
 """
-import sys
+import os, subprocess, sys
+
+
+def find_python():
+    """Absolute path to a Python 3.11+ interpreter to run this program under, or None. Searches PATH,
+    then the folders a bare, non-login ssh leaves off it (Homebrew and ~/.local/bin)."""
+    here = os.path.realpath(sys.executable)
+    dirs = os.environ.get("PATH", "").split(os.pathsep) + ["/opt/homebrew/bin", "/usr/local/bin",
+                                                           "/home/linuxbrew/.linuxbrew/bin",
+                                                           os.path.join(os.path.expanduser("~"), ".local", "bin")]
+    for d in dirs:
+        for name in ("python3", "python3.14", "python3.13", "python3.12", "python3.11"):
+            p = os.path.realpath(os.path.join(d or ".", name))
+            if p == here or not os.access(p, os.X_OK):
+                continue
+            try:
+                ok = subprocess.run([p, "-c", "import sys; sys.exit(sys.version_info < (3, 11))"],
+                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
+            except OSError:
+                continue
+            if ok:
+                return p
+    return None
+
 
 if sys.version_info < (3, 11):
+    # A bare, non-login ssh has macOS's Python 3.9 on PATH and not Homebrew's; hand off to a 3.11+
+    # interpreter before importing tomllib, which only exists from 3.11.
+    interpreter = find_python()
+    if interpreter:
+        os.execv(interpreter, [interpreter, os.path.abspath(__file__), *sys.argv[1:]])
     sys.stderr.write(f"dot: dot needs Python 3.11+ (found {sys.version.split()[0]} at {sys.executable})\n")
     sys.exit(2)
 

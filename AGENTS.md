@@ -9,9 +9,9 @@
 
 ## Code map
 
-- `dot`: the whole program, top to bottom: config (`load`, `resolve`, `validate`, `render`), the
-  plan (`wants`, `plan`), carrying it out (`write`, `prune`, `apply`), commands (`status`, `take`,
-  `sync`, `init`, `install`, `help_`), and `main`.
+- `dot`: the whole program, top to bottom: the launcher (`find_python`), config (`load`, `resolve`,
+  `validate`, `render`), the plan (`wants`, `plan`), carrying it out (`write`, `prune`, `apply`),
+  commands (`status`, `take`, `sync`, `init`, `install`, `help_`), and `main`.
 - `test.py`: one unittest per protected behavior.
 - `example/`: the setup `dot init` copies; it must stay valid for any machine name.
 

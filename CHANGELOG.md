@@ -2,8 +2,13 @@
 
 ## Unreleased
 
-- Fixed: dot re-execs a Python 3.11+ interpreter it finds itself (on PATH, then Homebrew's usual
-  folders), so it runs from a bare, non-login ssh where macOS's Python 3.9 is the only one on PATH.
+- Brand assets: the dot wordmark and logo in black and white under `assets/`, and the wordmark in
+  the README header.
+- A failed pull or push makes `dot sync` exit 1. It still applies the local setup.
+- Rewritten in Go as a single binary with an embedded starter setup. No Python needed.
+- Added worked examples in docs/ for installation, configuration, commands and syncing.
+- Added `dot version` and `--version`, plus release archives for Linux and macOS on amd64 and arm64.
+
 - First release: `status`, `apply`, `sync`, `take`, `init`, `install` and `help`, driven by one
   plan from `dot.toml`; templates with per-machine values; mirrored folders; files edited in place
   are never overwritten or deleted without `--force`.

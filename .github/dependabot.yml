@@ -1,4 +1,4 @@
-# One weekly pull request for GitHub Actions updates, grouped; dot has no dependencies.
+# Weekly dependency updates: one grouped PR for GitHub Actions and one for Go modules.
 version: 2
 updates:
   - package-ecosystem: github-actions
@@ -7,4 +7,11 @@ updates:
       interval: weekly
     groups:
       actions:
+        patterns: ["*"]
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      modules:
         patterns: ["*"]

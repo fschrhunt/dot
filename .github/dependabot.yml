@@ -1,0 +1,10 @@
+# One weekly pull request for GitHub Actions updates, grouped; dot has no dependencies.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]

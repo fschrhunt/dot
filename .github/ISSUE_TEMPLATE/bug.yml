@@ -1,0 +1,23 @@
+name: Bug
+description: Something dot did wrong
+labels: [bug]
+body:
+  - type: textarea
+    attributes:
+      label: What happened
+      description: What you expected, and what dot did instead.
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: How to reproduce
+      description: The smallest dot.toml and commands that show it.
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: dot help output
+      description: Paste the output of `dot help`. Remove anything private.
+      render: text
+    validations:
+      required: true

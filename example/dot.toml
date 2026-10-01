@@ -1,0 +1,19 @@
+# dot.toml: what dot writes on each machine. Edit, commit, then run dot apply (or wait for sync).
+version = 1
+exclude = [".DS_Store", "*.tmp"]     # never copied, never deleted
+
+[sync]
+push = true                          # push local commits the remote lacks (fast-forward only)
+
+[values]                             # {{name}} in templates, sources and destinations
+workspace_root = "~/Code"
+
+[machine.server]                     # overrides for the machine named server
+workspace_root = "~/src"
+
+[templates]                          # rendered, then written to each destination
+"instructions.md" = ["~/.claude/CLAUDE.md", "~/.codex/AGENTS.md"]
+
+[files]                              # copied verbatim; add your own, for example:
+# "skills/review" = ["~/.claude/skills/review", "~/.codex/skills/review"]
+# "zsh" = { to = "~/.config/zsh", mirror = false, exclude = ["local.zsh"], machines = ["laptop"] }

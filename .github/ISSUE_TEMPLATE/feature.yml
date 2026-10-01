@@ -1,0 +1,13 @@
+name: Feature
+description: Something dot should do
+labels: [enhancement]
+body:
+  - type: textarea
+    attributes:
+      label: The problem
+      description: What you are trying to do, and why dot makes it hard today.
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: The smallest change that would solve it

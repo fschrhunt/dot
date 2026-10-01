@@ -24,18 +24,55 @@ type result struct {
 	code     int
 }
 
-// git runs noninteractive git in the setup with a 60-second deadline.
-func git(p setup.Paths, args ...string) (result, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+// sshCommand returns the ssh command git would use in the setup, with dot's two options added:
+// batch mode, so a timer never waits at a prompt, and the connection timeout. The command is
+// the user's GIT_SSH_COMMAND or core.sshCommand when one is set, and plain ssh otherwise. With
+// only GIT_SSH set, the choice of program is left alone and the result is empty.
+func sshCommand(p setup.Paths, connect time.Duration) string {
+	base := os.Getenv("GIT_SSH_COMMAND")
+	if base == "" {
+		out, _ := exec.Command("git", "-C", p.Dot, "config", "--get", "core.sshCommand").Output()
+		base = strings.TrimSpace(string(out))
+	}
+	if base == "" {
+		if os.Getenv("GIT_SSH") != "" {
+			return ""
+		}
+		base = "ssh"
+	}
+	return fmt.Sprintf("%s -o BatchMode=yes -o ConnectTimeout=%d", base, connect/time.Second)
+}
+
+// session is one sync's way of running git: the setup, the deadline for each command, and the
+// environment that keeps git and ssh from prompting.
+type session struct {
+	p       setup.Paths
+	timeout time.Duration
+	env     []string
+}
+
+// open prepares git for the setup from this machine's sync settings.
+func open(p setup.Paths, s config.Sync) session {
+	env := append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	if ssh := sshCommand(p, s.ConnectTimeout); ssh != "" {
+		env = append(env, "GIT_SSH_COMMAND="+ssh)
+	}
+	return session{p, s.Timeout, env}
+}
+
+// git runs noninteractive git in the setup, stopping it at the deadline.
+func (s session) git(args ...string) (result, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", p.Dot}, args...)...)
-	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_SSH_COMMAND=ssh -o BatchMode=yes -o ConnectTimeout=5")
+	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", s.p.Dot}, args...)...)
+	cmd.Env = s.env
+	cmd.WaitDelay = time.Second
 	var out, stderr bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &stderr
 	e := cmd.Run()
 	if ctx.Err() != nil {
-		return result{err: "timed out after 60 s", code: 124}, nil
+		return result{err: fmt.Sprintf("timed out after %d s", s.timeout/time.Second), code: 124}, nil
 	}
 	if e != nil {
 		if _, ok := e.(*exec.ExitError); !ok {
@@ -62,14 +99,16 @@ func run(p setup.Paths) (notes []string, code int, err error) {
 	if !setup.IsDir(filepath.Join(p.Dot, ".git")) {
 		return notes, 2, setup.Fail(p.Show(p.Dot) + " is not a git repo")
 	}
-	r, e := git(p, "status", "--porcelain", "--untracked-files=no")
+	// The settings come from dot.toml as it is before the pull, which may be about to change it.
+	s := open(p, config.SyncSettings(p))
+	r, e := s.git("status", "--porcelain", "--untracked-files=no")
 	if e != nil {
 		return notes, 2, e
 	}
 	if strings.TrimSpace(r.out) != "" {
 		return notes, 1, setup.Fail("refused: uncommitted changes in "+p.Show(p.Dot)+" (commit or discard them)", 1)
 	}
-	r, e = git(p, "rev-parse", "--abbrev-ref", "@{u}")
+	r, e = s.git("rev-parse", "--abbrev-ref", "@{u}")
 	if e != nil {
 		return notes, 2, e
 	}
@@ -77,11 +116,11 @@ func run(p setup.Paths) (notes []string, code int, err error) {
 	if !upstream {
 		notes = append(notes, "no upstream")
 	} else {
-		head, e := git(p, "rev-parse", "HEAD")
+		head, e := s.git("rev-parse", "HEAD")
 		if e != nil {
 			return notes, 2, e
 		}
-		r, e = git(p, "pull", "--ff-only", "--quiet")
+		r, e = s.git("pull", "--ff-only", "--quiet")
 		if e != nil {
 			return notes, 2, e
 		}
@@ -89,7 +128,7 @@ func run(p setup.Paths) (notes []string, code int, err error) {
 			notes = append(notes, "pull failed: "+lastLine(r.err))
 			failed = true
 		} else {
-			now, e := git(p, "rev-parse", "HEAD")
+			now, e := s.git("rev-parse", "HEAD")
 			if e != nil {
 				return notes, 2, e
 			}
@@ -105,13 +144,13 @@ func run(p setup.Paths) (notes []string, code int, err error) {
 		return notes, setup.ExitCode(e), e
 	}
 	if upstream && c.Push {
-		r, e = git(p, "rev-list", "--count", "@{u}..HEAD")
+		r, e = s.git("rev-list", "--count", "@{u}..HEAD")
 		if e != nil {
 			return notes, 2, e
 		}
 		n := strings.TrimSpace(r.out)
 		if n != "" && n != "0" {
-			r, e = git(p, "push", "--quiet")
+			r, e = s.git("push", "--quiet")
 			if e != nil {
 				return notes, 2, e
 			}
@@ -127,9 +166,18 @@ func run(p setup.Paths) (notes []string, code int, err error) {
 	if e != nil {
 		return notes, setup.ExitCode(e), e
 	}
-	notes = append(notes, fmt.Sprintf("%d changed", len(done)))
+	ran := 0
+	for _, a := range done {
+		if a.Op == "run" {
+			ran++
+		}
+	}
+	notes = append(notes, fmt.Sprintf("%d changed", len(done)-ran))
+	if ran > 0 {
+		notes = append(notes, fmt.Sprintf("%d run", ran))
+	}
 	for _, a := range refused {
-		notes = append(notes, plan.EditedNote(p, a.Path, a.Op))
+		notes = append(notes, plan.Refusal(p, a))
 	}
 	if len(refused) > 0 || failed {
 		code = 1

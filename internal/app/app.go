@@ -24,6 +24,7 @@ usage:
   dot [status [path]]       show what apply would do; with a path, a diff for it
                             (+ new, ~ changed, - removed, ! edited here, ? extra)
   dot apply [-n] [--force]  write the plan; -n only prints it; --force overwrites files edited here
+                            (> run is a mapping's command, run after its files change)
   dot sync                  pull, push when ahead and push is on, then apply (the timer runs this)
   dot take <path>           copy a live file or folder back to its source in the setup
   dot init [remote]         create the setup from the example, or clone it from a git remote
@@ -113,7 +114,7 @@ func Apply(c *config.Config, dry, force bool, out, stderr io.Writer) (int, error
 	}
 	plan.Print(out, c.Paths, done)
 	for _, a := range refused {
-		fmt.Fprintln(stderr, "dot: "+plan.EditedNote(c.Paths, a.Path, a.Op))
+		fmt.Fprintln(stderr, "dot: "+plan.Refusal(c.Paths, a))
 	}
 	if len(refused) > 0 {
 		return 1, nil
@@ -124,7 +125,7 @@ func Apply(c *config.Config, dry, force bool, out, stderr io.Writer) (int, error
 // Take copies live managed paths back to their source, refusing rendered destinations.
 func Take(c *config.Config, path string, out io.Writer) (int, error) {
 	p := c.Paths.Abs(path)
-	want, roots, e := plan.Wants(c)
+	want, roots, _, e := plan.Wants(c)
 	if e != nil {
 		return 2, e
 	}
@@ -332,6 +333,9 @@ func Help(paths setup.Paths, out io.Writer) (int, error) {
 		}
 		if mp.Machines != nil {
 			notes = append(notes, "only on "+strings.Join(mp.Machines, ", "))
+		}
+		if mp.Run != "" {
+			notes = append(notes, "then runs "+mp.Run)
 		}
 		suffix := ""
 		if len(notes) > 0 {

@@ -107,3 +107,42 @@ func TestSyncRefusesGitWorktreeSetup(t *testing.T) {
 		t.Fatal("missing worktree refusal")
 	}
 }
+
+// overSSH points the setup at a remote git reaches through ssh, with the script as the ssh
+// command; the script records its arguments and then runs body.
+func overSSH(t *testing.T, f *testutil.Fixture, config, body string) string {
+	t.Helper()
+	f.Remote(config, map[string]string{"a": "1"})
+	script, args := filepath.Join(f.Temp, "myssh"), filepath.Join(f.Temp, "args")
+	f.Write(f.Temp, map[string]string{"myssh": "#!/bin/sh\necho \"$@\" > " + args + "\n" + body + "\n"})
+	if e := os.Chmod(script, 0755); e != nil {
+		t.Fatal(e)
+	}
+	f.Git(f.Paths.Dot, "remote", "set-url", "origin", "host.invalid:dot.git")
+	f.Git(f.Paths.Dot, "config", "core.sshCommand", script)
+	return args
+}
+
+// TestSyncKeepsYourSSHCommand pins the behavior: sync keeps your ssh command and adds batch mode and the connection timeout.
+func TestSyncKeepsYourSSHCommand(t *testing.T) {
+	f := testutil.New(t)
+	args := overSSH(t, f, "[sync]\nconnect_timeout = \"9s\"\n[files]\na = \"~/a\"\n", "exit 1")
+	testutil.Equal(t, f.Sync().Code, 1)
+	got, e := os.ReadFile(args)
+	if e != nil {
+		t.Fatal("the configured ssh command was not used: ", e)
+	}
+	if !strings.HasPrefix(string(got), "-o BatchMode=yes -o ConnectTimeout=9 ") {
+		t.Fatalf("got %q", got)
+	}
+}
+
+// TestSyncStopsGitAtTheTimeout pins the behavior: sync stops git at the timeout and still applies.
+func TestSyncStopsGitAtTheTimeout(t *testing.T) {
+	f := testutil.New(t)
+	overSSH(t, f, "[sync]\ntimeout = \"1s\"\n[files]\na = \"~/a\"\n", "sleep 30")
+	testutil.Equal(t, f.Sync().Code, 1)
+	if last := f.Read(f.Paths.State, "last"); !strings.Contains(last, "pull failed: timed out after 1 s; 1 changed") {
+		t.Fatal(last)
+	}
+}

@@ -51,6 +51,43 @@ dot install
 # Installed: dot sync runs every 1 minute on laptop.
 ```
 
+## sync.boot_delay
+
+```toml
+[sync]
+boot_delay = "30s"
+```
+
+How long after boot the Linux timer first runs. Defaults to `"2m"`; `"0s"` runs at boot.
+Read by `dot install`, like `every`. macOS runs the first sync when the agent loads.
+
+## sync.timeout and sync.connect_timeout
+
+```toml
+[sync]
+timeout = "3m"
+connect_timeout = "20s"
+```
+
+`timeout` stops each git command, and each mapping's `run` command, that takes longer.
+It defaults to `"60s"`. `connect_timeout` is how long ssh may take to connect, and defaults
+to `"5s"`. Raise them for a slow link or a large setup.
+
+## sync.machine.X
+
+```toml
+[sync]
+every = "15m"
+
+[sync.machine.server]
+every = "1m"
+push = true
+```
+
+The `server` machine syncs every minute and pushes. Other machines keep `[sync]`.
+A machine's table takes the same keys as `[sync]`. Every machine's table is checked on
+every machine.
+
 ## values
 
 ```toml
@@ -125,7 +162,7 @@ exclude = ["local.zsh"]
 machines = ["laptop", "server"]
 ```
 
-`to` is required. It accepts a nonempty string array as well:
+`to` is required. It accepts a nonempty string array as well, and the table also takes [`run`](#run):
 
 ```toml
 [files]
@@ -133,6 +170,28 @@ machines = ["laptop", "server"]
 ```
 
 Unknown mapping options are errors. Unknown top-level keys are ignored for compatibility.
+
+## run
+
+```toml
+[files]
+"tmux.conf" = { to = "~/.tmux.conf", run = "tmux source-file ~/.tmux.conf" }
+```
+
+A command to run after apply or sync changes anything in the mapping: once, after all the
+files are written, and never when nothing changed. Mappings run in the order dot.toml lists them.
+The command runs through `sh` in your home folder with `DOT_MACHINE` set, and stops at
+[`sync.timeout`](#synctimeout-and-syncconnect_timeout).
+
+```sh
+dot status
+# ~ changed     ~/.tmux.conf
+# > run         tmux source-file ~/.tmux.conf
+```
+
+A command that fails is reported as `run failed`, and apply or sync exits 1. The files stay
+written, so the command does not run again until the mapping next changes.
+The setup can run commands on every machine that syncs it, so keep its remote private.
 
 ## mirror
 

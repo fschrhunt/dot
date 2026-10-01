@@ -333,3 +333,29 @@ func TestFolderRootBecomingFileLeavesNestedFolders(t *testing.T) {
 		t.Fatalf("nested folder changed: %v", e)
 	}
 }
+
+// TestRunFollowsAChangeOnly pins the behavior: a mapping's command runs after its files change, and not otherwise.
+func TestRunFollowsAChangeOnly(t *testing.T) {
+	f := testutil.New(t)
+	f.Config("[files]\na = { to = \"~/a\", run = \"echo $DOT_MACHINE >> ran\" }\nb = \"~/b\"\n", map[string]string{"a": "1", "b": "1"})
+	r := f.Status("")
+	if !strings.Contains(r.Output, "> run         echo $DOT_MACHINE >> ran\n") {
+		t.Fatal(r.Output)
+	}
+	testutil.OK(t, f.Apply(false))
+	f.Write(f.Paths.Dot, map[string]string{"b": "2"})
+	testutil.OK(t, f.Apply(false))
+	testutil.Equal(t, f.Read(f.Paths.Home, "ran"), "laptop\n")
+}
+
+// TestFailedRunIsReported pins the behavior: a failed command is reported and exits 1, after the files are written.
+func TestFailedRunIsReported(t *testing.T) {
+	f := testutil.New(t)
+	f.Config("[files]\na = { to = \"~/a\", run = \"exit 3\" }\n", map[string]string{"a": "1"})
+	r := f.Apply(false)
+	testutil.Equal(t, r.Code, 1)
+	if !strings.Contains(r.Output, "dot: run failed: exit 3 (exit status 3)") {
+		t.Fatal(r.Output)
+	}
+	testutil.Equal(t, f.Read(f.Paths.Home, "a"), "1")
+}

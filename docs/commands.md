@@ -17,7 +17,8 @@ dot status
 ```
 
 The last sync line appears only after a sync. `?` means an extra file under a mapping
-with `mirror = false`. A directory creation ends in `/`.
+with `mirror = false`. A directory creation ends in `/`. `> run` names a mapping's
+[`run`](config.md#run) command that apply would run after these changes.
 Exit 1 means the plan has work to do. Extras alone exit 0. With no actions, prints `up to date`.
 
 ```sh
@@ -42,6 +43,7 @@ dot apply
 ```
 
 `-n` prints the plan without writing and exits 0.
+After writing, apply runs the [`run`](config.md#run) command of each mapping it changed.
 `--force` allows replacing files edited at the destination. Review the diff first.
 
 ```sh

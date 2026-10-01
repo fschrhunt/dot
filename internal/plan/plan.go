@@ -21,41 +21,67 @@ type Root struct {
 }
 
 // Action describes a change; an empty Op is informational and must not mutate files.
+// A run action's Path is its command, and Note says why a refused one failed.
 type Action struct {
 	Mark, Path, Op string
 	Want           setup.Want
+	Note           string
 }
 
-// Plan holds the ordered actions, desired paths, and directory roots for an invocation.
+// Hook is a mapping's run command and the destinations whose changes trigger it.
+type Hook struct {
+	Command string
+	Dests   []string
+}
+
+// Plan holds the ordered actions, desired paths, directory roots, and hooks for an invocation.
 type Plan struct {
 	Actions []Action
 	Wants   map[string]setup.Want
 	Roots   []Root
+	Hooks   []Hook
 }
 
-// Wants expands active mappings into desired files, symlinks and directories.
-func Wants(c *config.Config) (map[string]setup.Want, []Root, error) {
+// Touched reports whether any of actions writes or removes something at or under dests.
+func Touched(dests []string, actions []Action) bool {
+	for _, a := range actions {
+		for _, d := range dests {
+			if a.Op != "" && a.Op != "run" && (a.Path == d || setup.Under(a.Path, d)) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// Wants expands active mappings into desired files, symlinks and directories, and lists the
+// mappings' run commands in configuration order.
+func Wants(c *config.Config) (map[string]setup.Want, []Root, []Hook, error) {
 	out := map[string]setup.Want{}
 	var roots []Root
+	var hooks []Hook
 	maps, e := c.Resolve(c.Paths.Machine)
 	if e != nil {
-		return nil, nil, e
+		return nil, nil, nil, e
 	}
 	for _, r := range maps {
+		if r.Run != "" {
+			hooks = append(hooks, Hook{r.Run, r.Dests})
+		}
 		excl := append(slices.Clone(c.Exclude), r.Exclude...)
 		items := map[string]setup.Want{}
 		if r.Template {
 			b, e := os.ReadFile(r.Source)
 			if e != nil {
-				return nil, nil, e
+				return nil, nil, nil, e
 			}
 			text, e := config.Render(strings.ReplaceAll(strings.ReplaceAll(string(b), "\r\n", "\n"), "\r", "\n"), c.ValuesFor(c.Paths.Machine), c.Paths.Show(r.Source))
 			if e != nil {
-				return nil, nil, e
+				return nil, nil, nil, e
 			}
 			w, e := setup.WantOf(r.Source, []byte(text))
 			if e != nil {
-				return nil, nil, e
+				return nil, nil, nil, e
 			}
 			items["."] = w
 		} else if setup.IsDir(r.Source) && !setup.IsLink(r.Source) {
@@ -85,7 +111,7 @@ func Wants(c *config.Config) (map[string]setup.Want, []Root, error) {
 				return nil
 			})
 			if e != nil {
-				return nil, nil, e
+				return nil, nil, nil, e
 			}
 			for _, d := range r.Dests {
 				roots = append(roots, Root{d, r.Source, r.Mirror, excl})
@@ -93,7 +119,7 @@ func Wants(c *config.Config) (map[string]setup.Want, []Root, error) {
 		} else {
 			w, e := setup.WantOf(r.Source, nil)
 			if e != nil {
-				return nil, nil, e
+				return nil, nil, nil, e
 			}
 			items["."] = w
 		}
@@ -104,7 +130,7 @@ func Wants(c *config.Config) (map[string]setup.Want, []Root, error) {
 			}
 		}
 	}
-	return out, roots, nil
+	return out, roots, hooks, nil
 }
 
 // ViaLink detects a symlink between the deepest managed root and a destination's parent.
@@ -135,8 +161,8 @@ func Keys[V any](m map[string]V) []string {
 
 // Build orders deletions before writes, protecting edited paths and honoring exclusions.
 func Build(c *config.Config, written map[string]string) (Plan, error) {
-	want, roots, e := Wants(c)
-	p := Plan{Wants: want, Roots: roots}
+	want, roots, hooks, e := Wants(c)
+	p := Plan{Wants: want, Roots: roots, Hooks: hooks}
 	if e != nil {
 		return p, e
 	}
@@ -232,26 +258,46 @@ func Build(c *config.Config, written map[string]string) (Plan, error) {
 		if w.Kind == "dir" {
 			op = "mkdir"
 		}
-		p.Actions = append(p.Actions, Action{mark, q, op, w})
+		p.Actions = append(p.Actions, Action{Mark: mark, Path: q, Op: op, Want: w})
+	}
+	// Name each command a plain apply would run: one whose mapping has a change that is not an
+	// edit apply refuses. These lines are informational; apply decides from what it really did.
+	var plain []Action
+	for _, a := range p.Actions {
+		if a.Mark != "!" {
+			plain = append(plain, a)
+		}
+	}
+	for _, h := range hooks {
+		if Touched(h.Dests, plain) {
+			p.Actions = append(p.Actions, Action{Mark: ">", Path: h.Command})
+		}
 	}
 	return p, nil
 }
 
 // Print writes the exact plan labels, with a trailing slash for directory creations.
 func Print(out io.Writer, paths setup.Paths, actions []Action) {
-	labels := map[string]string{"+": "new", "~": "changed", "-": "removed", "!": "edited here", "?": "extra"}
+	labels := map[string]string{"+": "new", "~": "changed", "-": "removed", "!": "edited here", "?": "extra", ">": "run"}
 	for _, a := range actions {
 		suffix := ""
 		if a.Op == "mkdir" {
 			suffix = "/"
 		}
-		fmt.Fprintf(out, "%s %-11s %s%s\n", a.Mark, labels[a.Mark], paths.Show(a.Path), suffix)
+		shown := paths.Show(a.Path)
+		if a.Mark == ">" {
+			shown = a.Path
+		}
+		fmt.Fprintf(out, "%s %-11s %s%s\n", a.Mark, labels[a.Mark], shown, suffix)
 	}
 }
 
-// EditedNote tells the user how to resolve a refused write or deletion.
-func EditedNote(paths setup.Paths, p, op string) string {
-	q := paths.Show(p)
+// Refusal tells the user how to resolve a refused write or deletion, or why a command failed.
+func Refusal(paths setup.Paths, a Action) string {
+	if a.Op == "run" {
+		return "run failed: " + a.Path + " (" + a.Note + ")"
+	}
+	q, op := paths.Show(a.Path), a.Op
 	if op == "delete" {
 		return "edited here: " + q + " (no longer in the setup; delete it, or dot apply --force)"
 	}

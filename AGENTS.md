@@ -14,9 +14,9 @@
 - `cmd/dot/main.go`: argument parsing, dispatch, version and exit handling.
 - `internal/config/`: TOML loading, values, rendering, resolution and validation for every machine.
 - `internal/plan/`: desired paths, the shared ordered plan, plan output and unified diffs.
-- `internal/apply/`: executing the plan, edited-in-place protection, pruning and written.json.
+- `internal/apply/`: executing the plan, edited-in-place protection, pruning, written.json and mappings' run commands.
 - `internal/setup/`: captured setup paths, user errors, traversal, signatures and atomic writes.
-- `internal/sync/`: locking, ff-only git pull, optional push, apply and sync logs.
+- `internal/sync/`: locking, the ssh command and timeouts for git, ff-only pull, optional push, apply and sync logs.
 - `internal/schedule/`: systemd user timer and launchd agent installation and removal.
 - `internal/app/`: status, apply, take, init and help command handlers.
 - `internal/testutil/`: temporary homes, handler capture and local git fixtures for tests.

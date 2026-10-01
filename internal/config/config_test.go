@@ -142,3 +142,24 @@ func TestSyncEveryMustBeWholeSeconds(t *testing.T) {
 	f := testutil.New(t)
 	invalid(t, f, "[sync]\nevery = \"1.5s\"\n", "dot: dot.toml: [sync] every must be whole seconds, minutes or hours", nil)
 }
+
+// TestSyncMachineTableOverridesSync pins the behavior: a machine's sync table overrides [sync] on that machine only.
+func TestSyncMachineTableOverridesSync(t *testing.T) {
+	f := testutil.New(t)
+	f.Config("[sync]\nevery = \"5m\"\n[sync.machine.server]\nevery = \"1m\"\npush = true\n", nil)
+	for machine, want := range map[string]config.Sync{"laptop": {Every: 5 * time.Minute}, "server": {Every: time.Minute, Push: true}} {
+		f.Paths.Machine = machine
+		c, e := config.Load(f.Paths)
+		if e != nil {
+			t.Fatal(e)
+		}
+		testutil.Equal(t, c.Every, want.Every)
+		testutil.Equal(t, c.Push, want.Push)
+	}
+}
+
+// TestBadSyncMachineTableIsErrorEverywhere pins the behavior: a bad sync table for another machine is an error here too.
+func TestBadSyncMachineTableIsErrorEverywhere(t *testing.T) {
+	f := testutil.New(t)
+	invalid(t, f, "[sync.machine.server]\ntimeout = \"never\"\n", "dot: dot.toml: [sync.machine.server] timeout must be whole seconds, minutes or hours", nil)
+}

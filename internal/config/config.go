@@ -3,6 +3,7 @@ package config
 
 import (
 	"fmt"
+	"maps"
 	"math"
 	"os"
 	"path/filepath"
@@ -17,22 +18,32 @@ import (
 )
 
 // Mapping is one source's destinations and copying policy, in configuration order.
+// Run is a shell command for apply to run after it changes anything under the destinations.
 type Mapping struct {
-	Label, Src            string
+	Label, Src, Run       string
 	To, Exclude, Machines []string
 	Template, Mirror      bool
 }
 
-// DefaultEvery is how often the timer syncs when [sync] every is not set.
-const DefaultEvery = 15 * time.Minute
+// Sync holds this machine's [sync] settings, after its [sync.machine.<name>] overrides.
+// Every is the timer's interval and BootDelay its first run after boot on Linux. Timeout stops
+// each git command and each mapping's run command; ConnectTimeout is given to ssh. Durations
+// are whole seconds.
+type Sync struct {
+	Push                                      bool
+	Every, BootDelay, Timeout, ConnectTimeout time.Duration
+}
+
+// DefaultSync returns the settings dot uses when dot.toml sets none.
+func DefaultSync() Sync {
+	return Sync{Every: 15 * time.Minute, BootDelay: 2 * time.Minute, Timeout: time.Minute, ConnectTimeout: 5 * time.Second}
+}
 
 // Config is a validated setup; Names and MachineNames preserve TOML order for help output.
-// Every is the timer's interval in whole seconds, read when dot install writes the timer.
 type Config struct {
-	Paths               setup.Paths
-	Exclude             []string
-	Push                bool
-	Every               time.Duration
+	Paths   setup.Paths
+	Exclude []string
+	Sync
 	Values              map[string]string
 	Machines            map[string]map[string]string
 	Names, MachineNames []string
@@ -147,6 +158,86 @@ func scalars(v any) (map[string]string, bool) {
 	return out, true
 }
 
+// setSync applies one table of sync settings to s and returns the first bad value's problem.
+func setSync(s *Sync, t map[string]any, where string) string {
+	if v, exists := t["push"]; exists {
+		push, ok := v.(bool)
+		if !ok {
+			return where + " push must be true or false"
+		}
+		s.Push = push
+	}
+	for _, f := range []struct {
+		key  string
+		to   *time.Duration
+		zero bool
+	}{{"every", &s.Every, false}, {"boot_delay", &s.BootDelay, true}, {"timeout", &s.Timeout, false}, {"connect_timeout", &s.ConnectTimeout, false}} {
+		v, exists := t[f.key]
+		if !exists {
+			continue
+		}
+		text, _ := v.(string)
+		d, e := time.ParseDuration(text)
+		if e != nil || d < 0 || d == 0 && !f.zero || d%time.Second != 0 {
+			return where + " " + f.key + " must be whole seconds, minutes or hours, such as \"90s\", \"5m\" or \"1h\""
+		}
+		*f.to = d
+	}
+	return ""
+}
+
+// syncFor reads [sync] and then machine's [sync.machine.<name>] table over it. Every machine's
+// table is checked, so a mistake in one shows on all of them.
+func syncFor(raw map[string]any, machine string) (Sync, string) {
+	base := DefaultSync()
+	t, ok := table(raw["sync"])
+	if !ok {
+		return base, "[sync] push must be true or false"
+	}
+	if problem := setSync(&base, t, "[sync]"); problem != "" {
+		return base, problem
+	}
+	machines, ok := table(t["machine"])
+	if !ok {
+		return base, "[sync.machine] must hold [sync.machine.<name>] tables"
+	}
+	out := base
+	for _, name := range slices.Sorted(maps.Keys(machines)) {
+		where := "[sync.machine." + name + "]"
+		over, ok := machines[name].(map[string]any)
+		if !ok {
+			return base, where + " must be a table"
+		}
+		s := base
+		if problem := setSync(&s, over, where); problem != "" {
+			return base, problem
+		}
+		if name == machine {
+			out = s
+		}
+	}
+	return out, ""
+}
+
+// SyncSettings reads only this machine's sync settings, without validating the rest of the
+// setup. sync uses it before pulling, when dot.toml may be about to change; a file it cannot
+// read yields the defaults.
+func SyncSettings(paths setup.Paths) Sync {
+	var raw map[string]any
+	source, e := os.ReadFile(filepath.Join(paths.Dot, "dot.toml"))
+	if e == nil {
+		_, e = decode(string(source), &raw)
+	}
+	if e != nil {
+		return DefaultSync()
+	}
+	s, problem := syncFor(raw, paths.Machine)
+	if problem != "" {
+		return DefaultSync()
+	}
+	return s
+}
+
 // Load parses and validates all accepted dot.toml keys, including machines not running here.
 func Load(paths setup.Paths) (*Config, error) {
 	path := filepath.Join(paths.Dot, "dot.toml")
@@ -181,29 +272,15 @@ func Load(paths setup.Paths) (*Config, error) {
 	if version > 1 {
 		return bad(fmt.Sprintf("version %d is newer than this dot; update dot", version))
 	}
-	c := &Config{Paths: paths, Every: DefaultEvery, Machines: map[string]map[string]string{}}
+	c := &Config{Paths: paths, Machines: map[string]map[string]string{}}
 	var ok bool
 	c.Exclude, ok = stringsOf(raw["exclude"])
 	if !ok {
 		return bad("exclude must be a list of strings")
 	}
-	sync, ok := table(raw["sync"])
-	if !ok {
-		return bad("[sync] push must be true or false")
-	}
-	if v, exists := sync["push"]; exists {
-		c.Push, ok = v.(bool)
-		if !ok {
-			return bad("[sync] push must be true or false")
-		}
-	}
-	if v, exists := sync["every"]; exists {
-		text, _ := v.(string)
-		every, e := time.ParseDuration(text)
-		if e != nil || every <= 0 || every%time.Second != 0 {
-			return bad("[sync] every must be whole seconds, minutes or hours, such as \"90s\", \"5m\" or \"1h\"")
-		}
-		c.Every = every
+	var problem string
+	if c.Sync, problem = syncFor(raw, paths.Machine); problem != "" {
+		return bad(problem)
 	}
 	c.Values, ok = scalars(raw["values"])
 	if !ok {
@@ -237,7 +314,7 @@ func Load(paths setup.Paths) (*Config, error) {
 			mp := Mapping{Label: fmt.Sprintf("[%s] \"%s\"", section, src), Src: src, Template: section == "templates", Mirror: true}
 			if opt, yes := val.(map[string]any); yes {
 				for _, k := range orderedKeys(md, section, src) {
-					if !slices.Contains([]string{"to", "mirror", "exclude", "machines"}, k) {
+					if !slices.Contains([]string{"to", "mirror", "exclude", "machines", "run"}, k) {
 						return bad(mp.Label + ": unknown key \"" + k + "\"")
 					}
 				}
@@ -255,6 +332,12 @@ func Load(paths setup.Paths) (*Config, error) {
 					mp.Machines, ok = stringsOf(v)
 					if !ok {
 						return bad(mp.Label + ": machines must be a list of strings")
+					}
+				}
+				if v, exists := opt["run"]; exists {
+					mp.Run, ok = v.(string)
+					if !ok || strings.TrimSpace(mp.Run) == "" {
+						return bad(mp.Label + ": run must be a command")
 					}
 				}
 				val = opt["to"]

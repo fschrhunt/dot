@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fschrhunt/dot/internal/config"
 	"github.com/fschrhunt/dot/internal/setup"
 )
 
@@ -67,8 +68,9 @@ func systemdSpan(d time.Duration) string {
 }
 
 // Run installs or removes the timer in paths.Home, retaining PATH and explicit setup overrides.
-// The timer runs dot sync once per every, which must be a positive number of whole seconds.
-func Run(paths setup.Paths, every time.Duration, remove bool, out io.Writer) (int, error) {
+// The timer runs dot sync once per s.Every; on Linux its first run is s.BootDelay after boot.
+func Run(paths setup.Paths, s config.Sync, remove bool, out io.Writer) (int, error) {
+	every := s.Every
 	program, e := os.Executable()
 	if e != nil {
 		return 2, e
@@ -136,7 +138,7 @@ func Run(paths setup.Paths, every time.Duration, remove bool, out io.Writer) (in
 			if every < 15*time.Minute {
 				accuracy = "AccuracySec=" + systemdSpan(max(every/15, time.Second).Truncate(time.Second)) + "\n"
 			}
-			timer := "[Unit]\nDescription=dot sync every " + span(every) + "\n\n[Timer]\nOnBootSec=2min\nOnUnitActiveSec=" + systemdSpan(every) + "\n" + accuracy + "Persistent=true\n\n[Install]\nWantedBy=timers.target\n"
+			timer := "[Unit]\nDescription=dot sync every " + span(every) + "\n\n[Timer]\nOnBootSec=" + systemdSpan(s.BootDelay) + "\nOnUnitActiveSec=" + systemdSpan(every) + "\n" + accuracy + "Persistent=true\n\n[Install]\nWantedBy=timers.target\n"
 			if e := os.WriteFile(filepath.Join(units, "dot.service"), []byte(service), 0666); e != nil {
 				return 2, e
 			}

@@ -12,8 +12,14 @@
 For compatibility, the setup must have a `.git` directory. A git worktree with a `.git`
 file is refused. Use a regular clone for your setup.
 
-Git commands cannot prompt and have a 60-second timeout. SSH uses batch mode and a
-five-second connection timeout. Make sure git authentication works without a prompt.
+Git commands cannot prompt, and each has a 60-second timeout. SSH uses batch mode and a
+five-second connection timeout. Change the timeouts with
+[`[sync] timeout` and `connect_timeout`](config.md#synctimeout-and-syncconnect_timeout).
+Make sure git authentication works without a prompt.
+
+dot keeps your ssh command. It takes `GIT_SSH_COMMAND` or git's `core.sshCommand` when you
+have set one, and plain `ssh` otherwise, and adds `-o BatchMode=yes -o ConnectTimeout=5` to it.
+With only `GIT_SSH` set, dot leaves ssh to that program and adds nothing.
 
 With no upstream, sync logs `no upstream` and applies locally. It never merges, rebases,
 resets or commits. A failed pull or push is logged and sync still applies the local setup, so an
@@ -21,8 +27,10 @@ offline machine keeps working, but sync exits 1 so the failure shows. Check the 
 
 ```sh
 cat ~/.dot/.state/last
-# 2026-10-01 12:15:00 laptop pulled; pushed; 2 changed
+# 2026-10-01 12:15:00 laptop pulled; pushed; 2 changed; 1 run
 ```
+
+`1 run` counts the mapping [`run`](config.md#run) commands that ran; it appears only when one did.
 
 The state folder also holds `written.json`, hashes of the files dot last wrote and `dir`
 for managed folder roots. Existing state carries over from the Python version.
@@ -108,7 +116,8 @@ journalctl --user -u dot.service
 dot install --remove
 ```
 
-Units live in `~/.config/systemd/user/`. The first run is scheduled two minutes after boot.
+Units live in `~/.config/systemd/user/`. The first run is scheduled two minutes after boot,
+or after [`[sync] boot_delay`](config.md#syncboot_delay).
 Later runs use a 15-minute interval, or the one in [`[sync] every`](config.md#syncevery).
 An interval under 15 minutes also sets `AccuracySec`, so systemd does not run it up to a
 minute late. The user service manager must be running.

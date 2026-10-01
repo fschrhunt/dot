@@ -4,6 +4,15 @@
 
 - `[sync] every` sets how often the timer runs `dot sync`, such as `"1m"` or `"1h"`. It defaults
   to 15 minutes, as before. Run `dot install` again after changing it.
+- `[sync] boot_delay` sets how long after boot the Linux timer first runs. It defaults to 2 minutes.
+- `[sync] timeout` and `connect_timeout` replace the fixed 60-second git deadline and 5-second
+  ssh connection timeout. The defaults are unchanged.
+- `[sync.machine.<name>]` overrides any `[sync]` setting on one machine.
+- A mapping's `run` command runs after apply or sync changes anything in that mapping. `dot status`
+  lists it as `> run`.
+- Fixed: `dot sync` no longer replaces your ssh command. It adds its options to `GIT_SSH_COMMAND`
+  or `core.sshCommand` when you have set one.
+- Fixed: a git command that reaches the timeout is stopped even when its ssh process lingers.
 - Brand assets: the dot wordmark and logo in black and white under `assets/`, and the wordmark in
   the README header.
 - A failed pull or push makes `dot sync` exit 1. It still applies the local setup.

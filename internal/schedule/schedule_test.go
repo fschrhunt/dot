@@ -18,15 +18,15 @@ import (
 // install writes the default timer and returns the systemd service or the launchd agent.
 func install(t *testing.T, f *testutil.Fixture) string {
 	t.Helper()
-	installEvery(t, f, config.DefaultEvery)
+	installWith(t, f, config.DefaultSync())
 	if runtime.GOOS == "darwin" {
 		return f.Read(f.Paths.Home, "Library/LaunchAgents/dot.plist")
 	}
 	return f.Read(f.Paths.Home, ".config/systemd/user/dot.service")
 }
 
-// installEvery stubs service managers so only the temp home receives units or agents.
-func installEvery(t *testing.T, f *testutil.Fixture, every time.Duration) {
+// installWith stubs service managers so only the temp home receives units or agents.
+func installWith(t *testing.T, f *testutil.Fixture, s config.Sync) {
 	t.Helper()
 	bin := filepath.Join(f.Temp, "bin")
 	f.Write(bin, map[string]string{"systemctl": "#!/bin/sh\nexit 0\n", "launchctl": "#!/bin/sh\nexit 0\n"})
@@ -37,7 +37,7 @@ func installEvery(t *testing.T, f *testutil.Fixture, every time.Duration) {
 	}
 	t.Setenv("PATH", bin+":"+os.Getenv("PATH"))
 	var out bytes.Buffer
-	code, e := schedule.Run(f.Paths, every, false, &out)
+	code, e := schedule.Run(f.Paths, s, false, &out)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -56,7 +56,7 @@ func timer(f *testutil.Fixture) string {
 func TestInstallDefaultTimerIsUnchanged(t *testing.T) {
 	f := testutil.New(t)
 	f.Config("", nil)
-	installEvery(t, f, config.DefaultEvery)
+	installWith(t, f, config.DefaultSync())
 	if runtime.GOOS == "darwin" {
 		if !strings.Contains(timer(f), "<key>StartInterval</key><integer>900</integer>") {
 			t.Fatal(timer(f))
@@ -66,12 +66,15 @@ func TestInstallDefaultTimerIsUnchanged(t *testing.T) {
 	testutil.Equal(t, timer(f), "[Unit]\nDescription=dot sync every 15 minutes\n\n[Timer]\nOnBootSec=2min\nOnUnitActiveSec=15min\nPersistent=true\n\n[Install]\nWantedBy=timers.target\n")
 }
 
-// TestInstallWritesTheInterval pins the behavior: install writes the interval, and a short one keeps systemd punctual.
+// TestInstallWritesTheInterval pins the behavior: install writes the interval and the delay after boot, and a short
+// interval keeps systemd punctual.
 func TestInstallWritesTheInterval(t *testing.T) {
 	f := testutil.New(t)
 	f.Config("", nil)
-	installEvery(t, f, 90*time.Second)
-	want := "Description=dot sync every 90 seconds\n\n[Timer]\nOnBootSec=2min\nOnUnitActiveSec=90s\nAccuracySec=6s\n"
+	s := config.DefaultSync()
+	s.Every, s.BootDelay = 90*time.Second, 10*time.Second
+	installWith(t, f, s)
+	want := "Description=dot sync every 90 seconds\n\n[Timer]\nOnBootSec=10s\nOnUnitActiveSec=90s\nAccuracySec=6s\n"
 	if runtime.GOOS == "darwin" {
 		want = "<key>StartInterval</key><integer>90</integer>"
 	}

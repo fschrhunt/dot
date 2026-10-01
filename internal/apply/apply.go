@@ -3,13 +3,16 @@ package apply
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
 	"syscall"
+	"time"
 	"unicode/utf16"
 
 	"github.com/fschrhunt/dot/internal/config"
@@ -69,8 +72,30 @@ func prune(p string, tops, dropped []string, want map[string]setup.Want) {
 	}
 }
 
+// command runs a mapping's command through sh in the home folder, with the machine name in
+// DOT_MACHINE and the sync timeout as its deadline. It returns why the command failed, or "".
+func command(c *config.Config, text string) string {
+	ctx, cancel := context.WithTimeout(context.Background(), c.Timeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "sh", "-c", text)
+	cmd.Dir = c.Paths.Home
+	cmd.Env = append(os.Environ(), "DOT_MACHINE="+c.Paths.Machine)
+	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+	cmd.WaitDelay = time.Second
+	e := cmd.Run()
+	if ctx.Err() != nil {
+		return fmt.Sprintf("timed out after %d s", c.Timeout/time.Second)
+	}
+	if e != nil {
+		return e.Error()
+	}
+	return ""
+}
+
 // Run executes the plan, skips paths related to refused edits, and always saves state.
 // force permits replacing edited paths; it never authorizes following destination symlinks.
+// Afterward it runs each mapping's command whose destinations changed, once and in
+// configuration order: one that ran is appended to done, and one that failed to refused.
 func Run(c *config.Config, force bool) (done, refused []plan.Action, err error) {
 	written, e := ReadWritten(c.Paths)
 	if e != nil {
@@ -158,6 +183,18 @@ func Run(c *config.Config, force bool) (done, refused []plan.Action, err error) 
 			written[q] = w.Sig
 		} else if w.Kind == "dir" && !slices.Contains(tops, q) {
 			delete(written, q)
+		}
+	}
+	changed := slices.Clone(done)
+	for _, h := range p.Hooks {
+		if !plan.Touched(h.Dests, changed) {
+			continue
+		}
+		a := plan.Action{Mark: ">", Path: h.Command, Op: "run"}
+		if a.Note = command(c, h.Command); a.Note != "" {
+			refused = append(refused, a)
+		} else {
+			done = append(done, a)
 		}
 	}
 	return done, refused, nil

@@ -47,7 +47,7 @@ func dispatch(args []string, out, stderr io.Writer) (int, error) {
 	case "status":
 		return app.Status(c, first, out)
 	case "install":
-		return schedule.Run(paths, c.Every, slices.Contains(args, "--remove"), out)
+		return schedule.Run(paths, c.Sync, slices.Contains(args, "--remove"), out)
 	case "take":
 		if len(args) != 1 {
 			return 2, setup.Fail("usage: dot take <live-path>")

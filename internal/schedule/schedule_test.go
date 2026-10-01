@@ -8,13 +8,25 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/fschrhunt/dot/internal/config"
 	"github.com/fschrhunt/dot/internal/schedule"
 	"github.com/fschrhunt/dot/internal/testutil"
 )
 
-// install stubs service managers so only the temp home receives units or agents.
+// install writes the default timer and returns the systemd service or the launchd agent.
 func install(t *testing.T, f *testutil.Fixture) string {
+	t.Helper()
+	installEvery(t, f, config.DefaultEvery)
+	if runtime.GOOS == "darwin" {
+		return f.Read(f.Paths.Home, "Library/LaunchAgents/dot.plist")
+	}
+	return f.Read(f.Paths.Home, ".config/systemd/user/dot.service")
+}
+
+// installEvery stubs service managers so only the temp home receives units or agents.
+func installEvery(t *testing.T, f *testutil.Fixture, every time.Duration) {
 	t.Helper()
 	bin := filepath.Join(f.Temp, "bin")
 	f.Write(bin, map[string]string{"systemctl": "#!/bin/sh\nexit 0\n", "launchctl": "#!/bin/sh\nexit 0\n"})
@@ -25,15 +37,47 @@ func install(t *testing.T, f *testutil.Fixture) string {
 	}
 	t.Setenv("PATH", bin+":"+os.Getenv("PATH"))
 	var out bytes.Buffer
-	code, e := schedule.Run(f.Paths, false, &out)
+	code, e := schedule.Run(f.Paths, every, false, &out)
 	if e != nil {
 		t.Fatal(e)
 	}
 	testutil.Equal(t, code, 0)
+}
+
+// timer returns the part of the installed timer that holds its interval.
+func timer(f *testutil.Fixture) string {
 	if runtime.GOOS == "darwin" {
 		return f.Read(f.Paths.Home, "Library/LaunchAgents/dot.plist")
 	}
-	return f.Read(f.Paths.Home, ".config/systemd/user/dot.service")
+	return f.Read(f.Paths.Home, ".config/systemd/user/dot.timer")
+}
+
+// TestInstallDefaultTimerIsUnchanged pins the behavior: the default timer is the one earlier versions wrote.
+func TestInstallDefaultTimerIsUnchanged(t *testing.T) {
+	f := testutil.New(t)
+	f.Config("", nil)
+	installEvery(t, f, config.DefaultEvery)
+	if runtime.GOOS == "darwin" {
+		if !strings.Contains(timer(f), "<key>StartInterval</key><integer>900</integer>") {
+			t.Fatal(timer(f))
+		}
+		return
+	}
+	testutil.Equal(t, timer(f), "[Unit]\nDescription=dot sync every 15 minutes\n\n[Timer]\nOnBootSec=2min\nOnUnitActiveSec=15min\nPersistent=true\n\n[Install]\nWantedBy=timers.target\n")
+}
+
+// TestInstallWritesTheInterval pins the behavior: install writes the interval, and a short one keeps systemd punctual.
+func TestInstallWritesTheInterval(t *testing.T) {
+	f := testutil.New(t)
+	f.Config("", nil)
+	installEvery(t, f, 90*time.Second)
+	want := "Description=dot sync every 90 seconds\n\n[Timer]\nOnBootSec=2min\nOnUnitActiveSec=90s\nAccuracySec=6s\n"
+	if runtime.GOOS == "darwin" {
+		want = "<key>StartInterval</key><integer>90</integer>"
+	}
+	if !strings.Contains(timer(f), want) {
+		t.Fatalf("got %q; want %q", timer(f), want)
+	}
 }
 
 // TestInstallKeepsMachineName pins the behavior: install keeps machine name.

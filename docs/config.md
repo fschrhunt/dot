@@ -33,6 +33,24 @@ push = true
 Defaults to false. With an upstream, sync pushes local commits when ahead.
 It never creates commits.
 
+## sync.every
+
+```toml
+[sync]
+every = "1m"
+```
+
+How often the timer runs `dot sync`. Defaults to `"15m"`. Write whole seconds, minutes or
+hours, alone or combined: `"90s"`, `"5m"`, `"1h"`, `"1h30m"`.
+
+`dot install` reads this when it writes the timer, so run `dot install` again on each machine
+after changing it:
+
+```sh
+dot install
+# Installed: dot sync runs every 1 minute on laptop.
+```
+
 ## values
 
 ```toml

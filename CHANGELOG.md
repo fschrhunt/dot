@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- `[sync] every` sets how often the timer runs `dot sync`, such as `"1m"` or `"1h"`. It defaults
+  to 15 minutes, as before. Run `dot install` again after changing it.
 - Brand assets: the dot wordmark and logo in black and white under `assets/`, and the wordmark in
   the README header.
 - A failed pull or push makes `dot sync` exit 1. It still applies the local setup.

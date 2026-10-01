@@ -27,7 +27,8 @@ usage:
   dot sync                  pull, push when ahead and push is on, then apply (the timer runs this)
   dot take <path>           copy a live file or folder back to its source in the setup
   dot init [remote]         create the setup from the example, or clone it from a git remote
-  dot install [--remove]    run dot sync every 15 minutes on this machine (or stop it)
+  dot install [--remove]    run dot sync on a timer on this machine, every 15 minutes unless
+                            [sync] every says otherwise (or stop it)
   dot help                  this text and a summary of the setup
   dot version               print the binary version (also --version)
 

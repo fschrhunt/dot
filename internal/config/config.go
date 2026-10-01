@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/BurntSushi/toml"
 	"github.com/fschrhunt/dot/internal/setup"
@@ -22,11 +23,16 @@ type Mapping struct {
 	Template, Mirror      bool
 }
 
+// DefaultEvery is how often the timer syncs when [sync] every is not set.
+const DefaultEvery = 15 * time.Minute
+
 // Config is a validated setup; Names and MachineNames preserve TOML order for help output.
+// Every is the timer's interval in whole seconds, read when dot install writes the timer.
 type Config struct {
 	Paths               setup.Paths
 	Exclude             []string
 	Push                bool
+	Every               time.Duration
 	Values              map[string]string
 	Machines            map[string]map[string]string
 	Names, MachineNames []string
@@ -175,7 +181,7 @@ func Load(paths setup.Paths) (*Config, error) {
 	if version > 1 {
 		return bad(fmt.Sprintf("version %d is newer than this dot; update dot", version))
 	}
-	c := &Config{Paths: paths, Machines: map[string]map[string]string{}}
+	c := &Config{Paths: paths, Every: DefaultEvery, Machines: map[string]map[string]string{}}
 	var ok bool
 	c.Exclude, ok = stringsOf(raw["exclude"])
 	if !ok {
@@ -190,6 +196,14 @@ func Load(paths setup.Paths) (*Config, error) {
 		if !ok {
 			return bad("[sync] push must be true or false")
 		}
+	}
+	if v, exists := sync["every"]; exists {
+		text, _ := v.(string)
+		every, e := time.ParseDuration(text)
+		if e != nil || every <= 0 || every%time.Second != 0 {
+			return bad("[sync] every must be whole seconds, minutes or hours, such as \"90s\", \"5m\" or \"1h\"")
+		}
+		c.Every = every
 	}
 	c.Values, ok = scalars(raw["values"])
 	if !ok {

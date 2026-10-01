@@ -5,7 +5,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/fschrhunt/dot/internal/config"
 	"github.com/fschrhunt/dot/internal/testutil"
 )
 
@@ -122,4 +124,21 @@ func TestNumbersOutsideGoRangeRemainAccepted(t *testing.T) {
 	f.Config("version = -9223372036854775809\n[values]\na = 9223372036854775808\nb = 0xffffffffffffffff\nc = 1e400\n[templates]\nt = \"~/t\"\n", map[string]string{"t": "{{a}} {{b}} {{c}}"})
 	testutil.OK(t, f.Apply(false))
 	testutil.Equal(t, f.Read(f.Paths.Home, "t"), "9223372036854775808 18446744073709551615 inf")
+}
+
+// TestSyncEverySetsTheInterval pins the behavior: sync every sets the interval.
+func TestSyncEverySetsTheInterval(t *testing.T) {
+	f := testutil.New(t)
+	f.Config("[sync]\nevery = \"5m\"\n", nil)
+	c, e := config.Load(f.Paths)
+	if e != nil {
+		t.Fatal(e)
+	}
+	testutil.Equal(t, c.Every, 5*time.Minute)
+}
+
+// TestSyncEveryMustBeWholeSeconds pins the behavior: sync every must be whole seconds.
+func TestSyncEveryMustBeWholeSeconds(t *testing.T) {
+	f := testutil.New(t)
+	invalid(t, f, "[sync]\nevery = \"1.5s\"\n", "dot: dot.toml: [sync] every must be whole seconds, minutes or hours", nil)
 }

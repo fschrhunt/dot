@@ -103,8 +103,9 @@ dot install --remove
 ```
 
 Linux uses a systemd user timer. macOS uses a LaunchAgent.
+The interval is 15 minutes unless [`[sync] every`](config.md#syncevery) sets another.
 The timer runs the binary at its current absolute path and keeps PATH, DOT_HOME and DOT_MACHINE.
-Run install again after moving the binary. See [sync](sync.md) for inspecting the timer.
+Run install again after moving the binary or changing the interval. See [sync](sync.md) for inspecting the timer.
 
 ## help / -h / --help
 

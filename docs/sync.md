@@ -109,7 +109,9 @@ dot install --remove
 ```
 
 Units live in `~/.config/systemd/user/`. The first run is scheduled two minutes after boot.
-Later runs use a 15-minute interval. The user service manager must be running.
+Later runs use a 15-minute interval, or the one in [`[sync] every`](config.md#syncevery).
+An interval under 15 minutes also sets `AccuracySec`, so systemd does not run it up to a
+minute late. The user service manager must be running.
 
 ## macOS agent
 
@@ -120,8 +122,8 @@ cat ~/.dot/.state/launchd.log
 dot install --remove
 ```
 
-The agent lives in `~/Library/LaunchAgents/dot.plist`. It runs at load and every 900 seconds
-while the user session is active.
+The agent lives in `~/Library/LaunchAgents/dot.plist`. It runs at load and every 900 seconds,
+or the interval in [`[sync] every`](config.md#syncevery), while the user session is active.
 
 Both timers keep the installing shell's PATH and any explicit DOT_HOME and DOT_MACHINE.
 They execute the Go binary's absolute path. Reinstall after moving or replacing an old

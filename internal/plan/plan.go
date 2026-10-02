@@ -362,10 +362,11 @@ func Build(c *config.Config, written map[string]string, opt Options) (Plan, erro
 			}
 		}
 		// A file from home/ or agents/ has no folder mapping above it, so a name excluded after
-		// dot wrote it is matched against its path under the home folder.
+		// dot wrote it is matched against its path under the home folder, and against the places
+		// the excluded sources would have been written, whose names can differ from theirs.
 		if !rooted && c.Version >= 2 && setup.Under(q, c.Paths.Home) {
 			rel, _ := filepath.Rel(c.Paths.Home, q)
-			skip = setup.Excluded(rel, c.Exclude)
+			skip = setup.Excluded(rel, c.Exclude) || slices.ContainsFunc(c.Kept, func(kept string) bool { return q == kept || setup.Under(q, kept) })
 		}
 		if wanted || s == "dir" || ViaLink(q, tops) || skip {
 			continue

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/fschrhunt/dot/internal/testutil"
@@ -60,5 +61,18 @@ func TestTimerAndItsEarlierName(t *testing.T) {
 		}
 		testutil.Equal(t, code, 0)
 		testutil.Equal(t, out.String(), "Installed: dot sync runs every 15 minutes on laptop.\n")
+	}
+}
+
+// TestAMistypedFlagDoesNotRunTheCommand pins the behavior: timer and sync refuse an option they do not take, so a mistyped --remove never installs the timer.
+func TestAMistypedFlagDoesNotRunTheCommand(t *testing.T) {
+	f := testutil.New(t)
+	f.Config("", nil)
+	for _, args := range [][]string{{"timer", "--remvoe"}, {"sync", "--settle"}} {
+		var out bytes.Buffer
+		code, e := dispatch(args, &out, &out)
+		if code != 2 || e == nil || !strings.Contains(e.Error(), "unknown option "+args[1]) {
+			t.Fatal(args, code, e)
+		}
 	}
 }

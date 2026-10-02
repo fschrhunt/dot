@@ -62,7 +62,9 @@ func home(c *config.Config, p string, only bool) (source, live string, shared bo
 
 // copyIn copies a live file, link or folder into the setup, skipping excluded names. A file
 // that looks like it holds a credential is left out and named on out: a single one is an error.
-func copyIn(c *config.Config, live, source string, out io.Writer) error {
+// Under home/ a name ending in .tmpl would become a template, so it is left out too; inside a
+// shared unit, which copies files as they are, it is kept.
+func copyIn(c *config.Config, live, source string, shared bool, out io.Writer) error {
 	secret := func(w setup.Want) bool { return w.Kind == "file" && plan.Secret(nil, w.Data) }
 	if !setup.IsDir(live) || setup.IsLink(live) {
 		w, e := setup.WantOf(live, nil)
@@ -86,6 +88,10 @@ func copyIn(c *config.Config, live, source string, out io.Writer) error {
 			}
 			if secret(w) {
 				fmt.Fprintf(out, "left out %s: it looks like it holds a credential\n", c.Paths.Show(filepath.Join(dir, name)))
+				continue
+			}
+			if !shared && strings.HasSuffix(name, ".tmpl") {
+				fmt.Fprintf(out, "left out %s: .tmpl marks a template inside the setup; map it under [files]\n", c.Paths.Show(filepath.Join(dir, name)))
 				continue
 			}
 			if e := setup.Write(filepath.Join(source, rel), w); e != nil {
@@ -138,12 +144,15 @@ func Add(paths setup.Paths, args []string, out, stderr io.Writer) (int, error) {
 		if e != nil {
 			return 2, e
 		}
+		if strings.HasSuffix(source, ".tmpl") {
+			return 2, setup.Fail(paths.Show(p) + " ends in .tmpl, which marks a template inside the setup; map it under [files] in dot.toml")
+		}
 		target := filepath.Join(paths.Dot, source)
 		if setup.Exists(target) {
 			fmt.Fprintf(out, "%s is already in the setup as %s; dot status shows how they differ\n", paths.Show(live), source)
 			continue
 		}
-		if e := copyIn(c, live, target, out); e != nil {
+		if e := copyIn(c, live, target, shared, out); e != nil {
 			return 2, setup.Fail("cannot add " + paths.Show(live) + ": " + setup.Reason(e))
 		}
 		note := ""
@@ -180,7 +189,7 @@ func Forget(c *config.Config, args []string, out io.Writer) (int, error) {
 			return strings.HasPrefix(r.Label, "[") && (r.Source == source || setup.Under(source, r.Source))
 		})
 	}
-	var gone []string
+	var gone, said []string
 	for _, arg := range args {
 		p := c.Paths.Abs(arg)
 		found := false
@@ -205,7 +214,7 @@ func Forget(c *config.Config, args []string, out io.Writer) (int, error) {
 				return 2, setup.Fail(c.Paths.Show(p) + " is part of " + c.Paths.Show(r.Path) + ", which dot manages whole; forget that, or remove the file from " + c.Paths.Show(r.Source))
 			}
 		}
-		fmt.Fprintf(out, "forgot %s; it stays where it is\n", c.Paths.Show(p))
+		said = append(said, "forgot "+c.Paths.Show(p)+"; it stays where it is")
 	}
 	var names []string
 	for q, w := range want {
@@ -226,6 +235,9 @@ func Forget(c *config.Config, args []string, out io.Writer) (int, error) {
 				break
 			}
 		}
+	}
+	for _, line := range said {
+		fmt.Fprintln(out, line)
 	}
 	return 0, nil
 }

@@ -143,7 +143,10 @@ instructions = "RULES.md"
 limits a path in the setup, and everything under it, to some agents or some machines.
 The path must be under `home/` or `agents/`, and no deeper than one shared unit such as
 `agents/skills/browser`. `agents` applies only under `agents/`. An agent name dot does not know
-is an error.
+is an error. A path takes its agents from the nearest rule that names agents and its machines
+from the nearest that names machines, so a rule on one skill keeps the machines a rule on
+`agents/skills` set. A kind's path, such as `instructions = "RULES.md"`, must stay inside the
+agent's folder.
 
 ## values
 
@@ -172,8 +175,10 @@ All known machines are validated before commands use the config.
 
 ## templates
 
-A name ending in `.tmpl` under `home/` or `agents/` is a template without any line here. This
-table is for a template that needs an explicit mapping.
+A file under `home/`, or an entry of `agents/` such as `agents/instructions.md.tmpl`, whose name
+ends in `.tmpl` is a template without any line here. Files inside a shared folder, such as a
+skill, are copied as they are, whatever their names. This table is for a template that needs an
+explicit mapping.
 
 ```toml
 [templates]

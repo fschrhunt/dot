@@ -75,6 +75,8 @@ func agentsFrom(raw map[string]any, md toml.MetaData) ([]Agent, string) {
 			}
 			if key == "home" {
 				agents[i].Home = value
+			} else if value != "" && !filepath.IsLocal(value) {
+				return nil, where + " " + key + " must be a path inside the agent's folder"
 			} else if value == "" {
 				delete(agents[i].Kinds, key)
 			} else {
@@ -145,14 +147,20 @@ func checkOnly(rules map[string]only, agents []Agent) string {
 	return ""
 }
 
-// ruleFor finds the rule for a path in the setup: its own, or the nearest folder's above it.
+// ruleFor finds what limits a path in the setup: its agents from the nearest rule that names
+// agents, at the path or a folder above it, and its machines from the nearest that names
+// machines. A rule on a skill therefore keeps the machines a rule on its folder set.
 func ruleFor(rules map[string]only, path string) only {
+	var out only
 	for p := path; p != "." && p != "/"; p = filepath.Dir(p) {
-		if rule, ok := rules[p]; ok {
-			return rule
+		if out.agents == nil {
+			out.agents = rules[p].agents
+		}
+		if out.machines == nil {
+			out.machines = rules[p].machines
 		}
 	}
-	return only{}
+	return out
 }
 
 // discover turns the setup's folders into mappings, the same kind [files] and [templates] make.
@@ -160,7 +168,9 @@ func ruleFor(rules map[string]only, path string) only {
 // the folders around them. An entry of agents/ is written to every installed agent that has a
 // place for its kind: a file as it is, and each child of a folder as a mirrored unit of its own.
 // Two agents whose places are the same real path, one being a link to the other, get one copy.
-// A name ending in .tmpl is a template and loses the suffix where it is written.
+// A name ending in .tmpl is a template and loses the suffix where it is written; files inside a
+// unit are copied as they are, whatever their names. An excluded file or entry makes no mapping,
+// and where it would have been written is recorded in Kept.
 func (c *Config) discover(rules map[string]only) (string, error) {
 	plain := func(name string) (string, bool) {
 		short, is := strings.CutSuffix(name, ".tmpl")
@@ -171,10 +181,11 @@ func (c *Config) discover(rules map[string]only) (string, error) {
 		slices.Sort(files)
 		for _, name := range files {
 			rel, _ := filepath.Rel(c.Paths.Dot, filepath.Join(dir, name))
+			short, template := plain(strings.TrimPrefix(rel, "home/"))
 			if setup.Excluded(rel, c.Exclude) {
+				c.Kept = append(c.Kept, filepath.Join(c.Paths.Home, short))
 				continue
 			}
-			short, template := plain(strings.TrimPrefix(rel, "home/"))
 			c.Maps = append(c.Maps, Mapping{Label: rel, Src: rel, To: []string{filepath.Join(c.Paths.Home, short)}, Template: template, Mirror: true, Machines: ruleFor(rules, rel).machines})
 		}
 		return nil
@@ -189,11 +200,12 @@ func (c *Config) discover(rules map[string]only) (string, error) {
 	}
 	for _, entry := range entries {
 		name := entry.Name()
-		if strings.HasPrefix(name, ".") || setup.Excluded(name, c.Exclude) {
+		if strings.HasPrefix(name, ".") {
 			continue
 		}
+		left := setup.Excluded(name, c.Exclude)
 		kind, _, _ := strings.Cut(name, ".")
-		if !slices.ContainsFunc(c.Agents, func(a Agent) bool { return a.Kinds[kind] != "" }) {
+		if !left && !slices.ContainsFunc(c.Agents, func(a Agent) bool { return a.Kinds[kind] != "" }) {
 			return "agents/" + name + ": no agent has a place for " + kind + " (dot agents lists them; [agent.<name>] adds one)", nil
 		}
 		units := []string{""}
@@ -204,9 +216,7 @@ func (c *Config) discover(rules map[string]only) (string, error) {
 			}
 			units = nil
 			for _, child := range children {
-				if !setup.Excluded(child.Name(), c.Exclude) {
-					units = append(units, child.Name())
-				}
+				units = append(units, child.Name())
 			}
 		}
 		for _, unit := range units {
@@ -229,7 +239,9 @@ func (c *Config) discover(rules map[string]only) (string, error) {
 					m.To = append(m.To, to)
 				}
 			}
-			if len(m.To) > 0 {
+			if left || unit != "" && setup.Excluded(unit, c.Exclude) {
+				c.Kept = append(c.Kept, m.To...)
+			} else if len(m.To) > 0 {
 				c.Maps = append(c.Maps, m)
 			}
 		}

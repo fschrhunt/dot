@@ -13,13 +13,15 @@ import (
 // block is a contiguous match between two line sequences.
 type block struct{ a, b, n int }
 
-// matches implements difflib's longest-match recursion, including popular-line suppression.
-func matches(a, b []string) []block {
+// matches implements difflib's longest-match recursion. With junk it also leaves out lines that
+// are common in a long text, as difflib does, which a diff for reading wants and an exact
+// alignment does not.
+func matches(a, b []string, junk bool) []block {
 	index := map[string][]int{}
 	for j, s := range b {
 		index[s] = append(index[s], j)
 	}
-	if len(b) >= 200 {
+	if junk && len(b) >= 200 {
 		for s, js := range index {
 			if len(js) > len(b)/100+1 {
 				delete(index, s)
@@ -108,7 +110,8 @@ func lines(s string) []string {
 // the live file. Lines the edit left alone keep the template's text, placeholders included, and
 // take the live file's line ending; lines it changed or added take the live text, which is only
 // safe where the template's own line was plain. ok is false when the edit touches a line the
-// template fills in, or part of the lines one template line renders to.
+// template fills in, or part of the lines one template line renders to, and when the template
+// does not render line by line, as with a placeholder written across two lines.
 // The caller must still render the result and compare it with edited before trusting it.
 func Unrender(template, edited string, render func(line string) (string, bool)) (string, bool) {
 	split := func(s string) []string {
@@ -119,7 +122,7 @@ func Unrender(template, edited string, render func(line string) (string, bool)) 
 	// r is the rendered file line by line, owner the template line each came from, and span how
 	// many lines each template line gave.
 	t := split(template)
-	var r []string
+	var r, pieces []string
 	var owner []int
 	span := make([]int, len(t))
 	for o, line := range t {
@@ -127,10 +130,14 @@ func Unrender(template, edited string, render func(line string) (string, bool)) 
 		if !ok {
 			return "", false
 		}
+		pieces = append(pieces, piece)
 		for _, s := range split(piece) {
 			r, owner = append(r, text(s)), append(owner, o)
 			span[o]++
 		}
+	}
+	if whole, ok := render(template); !ok || whole != strings.Join(pieces, "") {
+		return "", false
 	}
 	l := split(edited)
 	live := make([]string, len(l))
@@ -148,7 +155,7 @@ func Unrender(template, edited string, render func(line string) (string, bool)) 
 		}
 	}
 	i, j := 0, 0
-	for _, m := range matches(r, live) {
+	for _, m := range matches(r, live, false) {
 		for ; i < m.a; i++ {
 			if o := owner[i]; span[o] != 1 || text(t[o]) != r[i] {
 				return "", false
@@ -193,7 +200,7 @@ func unified(out io.Writer, a, b []string, from, to string) {
 	}
 	var ops []op
 	i, j := 0, 0
-	for _, m := range matches(a, b) {
+	for _, m := range matches(a, b, true) {
 		tag := ""
 		if i < m.a && j < m.b {
 			tag = "replace"

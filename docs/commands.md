@@ -52,7 +52,8 @@ a path inside a skill adds the whole skill. `--only` stores an agent's path unde
 stays with that agent. A folder is added file by file. Needs a version 2 setup.
 
 A file that looks like it holds a credential is left out and named. A `.git` folder is left out
-too. An agent's whole folder, such as `~/.claude`, is refused: it holds sessions and credentials, so
+too, and so is a file whose name ends in `.tmpl`, which would become a template: map it under
+`[files]`. An agent's whole folder, such as `~/.claude`, is refused: it holds sessions and credentials, so
 add the files and skills you want from it. Your whole home folder, and anything inside the
 setup, are refused too.
 
@@ -96,7 +97,8 @@ Takes a file or folder back to how the setup had it before its last change, comm
 `<machine>: undo <path>`, and applies it here. The next sync sends it to the other machines.
 Nothing is erased: the undo is one more change, so `dot undo` again brings the path forward.
 
-A path with changes that are not synced yet is refused, exit 1; `dot sync` first, or
+Undo needs a setup that syncs both ways, since its commit has to reach the remote. A path with
+changes that are not synced yet is refused, exit 1; `dot sync` first, or
 `dot apply --force` to drop them. A path whose last change is the one that added it is refused
 too: `dot forget` is how a path stops being managed.
 
@@ -160,7 +162,8 @@ dot take ~/.config/zsh
 ```
 
 Copies changed files and new files back to the managed source, whatever sync would have held
-back. Does not delete missing source files or commit; the next sync commits. Excludes still
+back. A folder of separately managed files, such as one under `home/`, is taken file by file;
+a version 1 setup refuses it and asks for one destination at a time. Does not delete missing source files or commit; the next sync commits. Excludes still
 apply. An edit to a rendered file goes into its template when it touches only lines the template
 leaves as they are; otherwise take refuses and shows the diff.
 The live path must exist and belong to a mapping.
@@ -193,7 +196,8 @@ dot timer --remove
 Linux uses a systemd user timer. macOS uses a LaunchAgent.
 The interval is 15 minutes unless [`[sync] every`](config.md#syncevery) sets another.
 The timer runs the binary at its current absolute path and keeps PATH, DOT_HOME and DOT_MACHINE.
-Run it again after moving the binary or changing the interval. `dot install` is the earlier
+Run it again after moving the binary or changing the interval. An option it does not know is
+an error, as it is for `dot sync`, so a mistyped `--remove` installs nothing. `dot install` is the earlier
 name for this command and still works. See [sync](sync.md) for inspecting the timer.
 
 ## help / -h / --help

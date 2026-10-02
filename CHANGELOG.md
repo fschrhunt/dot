@@ -29,12 +29,23 @@
   - `.git` is always excluded, so a skill that is a git clone is shared without its repository
     instead of being committed as a submodule that reaches no other machine.
   - `dot status <path>` shows what a pending take would change in the setup.
+  - Excluding a shared file such as `agents/instructions.md` leaves the copies already written
+    under each agent's own name.
+  - An `[only]` rule on a skill keeps the machines a rule on its folder set.
+  - A kind's path in `[agent.<name>]` must stay inside the agent's folder.
+  - `dot add` refuses a name ending in `.tmpl`, which would become a template for another path.
+  - `dot take` of a folder under `home/` takes every managed file in it.
   - Two agents whose folders are the same real path, one linked to the other, get one copy.
   - Excluding a name under `home/` or `agents/` that dot already wrote leaves the live file.
 - `dot log [path]` prints the setup's last changes, or one path's. `dot undo <path>` takes a path
   back to before its last change, as a new commit, and applies it.
 - An edit to a rendered file is taken when a value in it holds a newline, and when the template
   has no final newline.
+- `dot timer` and `dot sync` reject an option they do not know, so a mistyped `--remove` no
+  longer installs the timer.
+- Fixed: an exclude pattern with a non-ASCII character, such as `café`, now matches.
+- Fixed: a source written as `a` and as `./a` is one source.
+- Fixed: a machine named only by `[sync.machine.<name>]` has its sources validated.
 - `dot take` carries an edit to a rendered file into its template when it touches only lines the
   template leaves as they are. It used to refuse every template destination.
 - Version 1 setups behave as before.

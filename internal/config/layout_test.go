@@ -173,3 +173,46 @@ func TestAFileExcludedAfterItWasWrittenStays(t *testing.T) {
 	testutil.OK(t, f.Apply(false))
 	testutil.Equal(t, f.Read(f.Paths.Home, ".config/tool/local"), "mine\n")
 }
+
+// TestAnExcludedSharedFileKeepsItsLiveCopies pins the behavior: excluding agents/instructions.md leaves the copies dot already wrote under each agent's own name.
+func TestAnExcludedSharedFileKeepsItsLiveCopies(t *testing.T) {
+	f := testutil.New(t)
+	agents(t, f, ".claude")
+	f.Config("version = 2\n", map[string]string{"agents/instructions.md": "keep me\n"})
+	testutil.OK(t, f.Apply(false))
+	f.Config("version = 2\nexclude = [\"instructions.md\"]\n", nil)
+	testutil.OK(t, f.Apply(false))
+	testutil.Equal(t, f.Read(f.Paths.Home, ".claude/CLAUDE.md"), "keep me\n")
+}
+
+// TestARuleOnASkillKeepsItsFoldersMachines pins the behavior: an [only] rule naming agents for one skill does not drop the machines a rule on its folder set.
+func TestARuleOnASkillKeepsItsFoldersMachines(t *testing.T) {
+	f := testutil.New(t)
+	agents(t, f, ".codex")
+	f.Config("version = 2\n[only]\n\"agents/skills\" = { machines = [\"desktop\"] }\n\"agents/skills/review\" = { agents = [\"codex\"] }\n", map[string]string{"agents/skills/review/SKILL.md": "desktop only\n"})
+	testutil.OK(t, f.Apply(false))
+	if _, e := os.Stat(filepath.Join(f.Paths.Home, ".codex/skills/review/SKILL.md")); !os.IsNotExist(e) {
+		t.Fatal("a skill for desktop reached laptop")
+	}
+}
+
+// TestAnAgentsPlaceMustBeInsideItsFolder pins the behavior: a kind whose path climbs out of the agent's folder is an error.
+func TestAnAgentsPlaceMustBeInsideItsFolder(t *testing.T) {
+	f := testutil.New(t)
+	agents(t, f, ".mine")
+	f.Config("version = 2\n[agent.mine]\nhome = \"~/.mine\"\ninstructions = \"../escaped.md\"\n", map[string]string{"agents/instructions.md": "rules\n"})
+	r := f.Apply(false)
+	testutil.Equal(t, r.Code, 2)
+	if !strings.Contains(r.Output, "must be a path inside the agent's folder") {
+		t.Fatal(r.Output)
+	}
+}
+
+// TestFilesInsideASharedSkillAreCopiedAsTheyAre pins the behavior: a file named .tmpl inside a skill is the skill's own content, copied under its name and not rendered.
+func TestFilesInsideASharedSkillAreCopiedAsTheyAre(t *testing.T) {
+	f := testutil.New(t)
+	agents(t, f, ".claude")
+	f.Config("version = 2\n", map[string]string{"agents/skills/scaffold/page.tmpl": "{{title}}\n"})
+	testutil.OK(t, f.Apply(false))
+	testutil.Equal(t, f.Read(f.Paths.Home, ".claude/skills/scaffold/page.tmpl"), "{{title}}\n")
+}

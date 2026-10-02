@@ -414,3 +414,77 @@ func TestStatusOfAPathShowsWhatATakeWouldChange(t *testing.T) {
 		t.Fatal(r.Output)
 	}
 }
+
+// TestUndoRefusesAOneWaySetup pins the behavior: dot undo makes no commit in a setup whose sync only fast-forwards, where that commit would stop every later sync.
+func TestUndoRefusesAOneWaySetup(t *testing.T) {
+	f := testutil.New(t)
+	f.Remote("[files]\na = \"~/a\"\n", map[string]string{"a": "1\n"})
+	seed := filepath.Join(f.Temp, "seed")
+	f.Commit(seed, map[string]string{"a": "2\n"}, "two")
+	f.Git(seed, "push", "-q", "origin", "main")
+	testutil.OK(t, f.Sync())
+	testutil.Equal(t, undo(t, f, "~/a").Code, 2)
+	testutil.Equal(t, strings.TrimSpace(f.Git(f.Paths.Dot, "log", "-1", "--format=%s")), "two")
+}
+
+// TestUndoOfAFolderTakesBackAFileItsLastChangeAdded pins the behavior: undoing a folder under home/ whose last change added a file removes that file again; the folder is not refused as if it were new.
+func TestUndoOfAFolderTakesBackAFileItsLastChangeAdded(t *testing.T) {
+	f := testutil.New(t)
+	f.Remote("version = 2\n", map[string]string{"home/app/a": "1\n"})
+	testutil.OK(t, f.Sync())
+	f.Write(f.Paths.Dot, map[string]string{"home/app/c": "c\n"})
+	testutil.OK(t, f.Sync())
+	testutil.OK(t, undo(t, f, "~/app"))
+	if _, e := os.Stat(filepath.Join(f.Paths.Home, "app/c")); !os.IsNotExist(e) {
+		t.Fatal("the added file is still there")
+	}
+	testutil.Equal(t, f.Read(f.Paths.Home, "app/a"), "1\n")
+}
+
+// TestAddRefusesANameEndingInTmpl pins the behavior: dot add does not store a live file named .tmpl under home/, where it would become a template for a different path.
+func TestAddRefusesANameEndingInTmpl(t *testing.T) {
+	f := testutil.New(t)
+	folders(t, f)
+	f.Write(f.Paths.Home, map[string]string{"mail.tmpl": "hello {{name}}\n"})
+	var out bytes.Buffer
+	if code, e := app.Add(f.Paths, []string{"~/mail.tmpl"}, &out, &out); code != 2 || e == nil || !strings.Contains(e.Error(), "map it under [files]") {
+		t.Fatal(code, e)
+	}
+	testutil.Equal(t, f.Status("").Output, "up to date\n")
+}
+
+// TestTakeOfAFolderUnderHomeTakesEachFile pins the behavior: in a version 2 setup, dot take of a folder of separately managed files takes every edit in it, a rendered file's into its template.
+func TestTakeOfAFolderUnderHomeTakesEachFile(t *testing.T) {
+	f := testutil.New(t)
+	f.Config("version = 2\n[values]\nwho = \"ann\"\n", map[string]string{"home/app/n.tmpl": "name = {{who}}\nplain\n", "home/app/f": "1\n"})
+	testutil.OK(t, f.Apply(false))
+	f.Write(f.Paths.Home, map[string]string{"app/n": "name = ann\nplain2\n", "app/f": "2\n"})
+	testutil.OK(t, f.Take("~/app"))
+	testutil.Equal(t, f.Read(f.Paths.Dot, "home/app/n.tmpl")+f.Read(f.Paths.Dot, "home/app/f"), "name = {{who}}\nplain2\n2\n")
+}
+
+// TestTakeOfSeveralDestinationsInVersionOneWritesNothing pins the behavior: a version 1 take of a folder holding several destinations is refused before a template in it is rewritten.
+func TestTakeOfSeveralDestinationsInVersionOneWritesNothing(t *testing.T) {
+	f := testutil.New(t)
+	f.Config("[templates]\nn = \"~/app/n\"\n[files]\nf = \"~/app/f\"\n", map[string]string{"n": "on {{machine}}\nplain\n", "f": "1\n"})
+	testutil.OK(t, f.Apply(false))
+	f.Write(f.Paths.Home, map[string]string{"app/n": "on laptop\nplain2\n"})
+	testutil.Equal(t, f.Take("~/app").Code, 2)
+	testutil.Equal(t, f.Read(f.Paths.Dot, "n"), "on {{machine}}\nplain\n")
+}
+
+// TestForgetSaysNothingWhenOnePathFails pins the behavior: when one path cannot be forgotten, none is, and none is reported as forgotten.
+func TestForgetSaysNothingWhenOnePathFails(t *testing.T) {
+	f := testutil.New(t)
+	folders(t, f)
+	f.Write(f.Paths.Home, map[string]string{".zshrc": "1\n"})
+	run(t, func(out *bytes.Buffer) (int, error) { return app.Add(f.Paths, []string{"~/.zshrc"}, out, out) })
+	c, e := config.Load(f.Paths)
+	if e != nil {
+		t.Fatal(e)
+	}
+	var out bytes.Buffer
+	code, _ := app.Forget(c, []string{"~/.zshrc", "~/missing"}, &out)
+	testutil.Equal(t, code, 2)
+	testutil.Equal(t, out.String()+f.Read(f.Paths.Dot, "home/.zshrc"), "1\n")
+}

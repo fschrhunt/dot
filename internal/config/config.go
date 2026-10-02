@@ -79,6 +79,11 @@ type Config struct {
 	Machines            map[string]map[string]string
 	Names, MachineNames []string
 	Maps                []Mapping
+	// Kept are live paths whose source the setup holds but excludes. dot never writes them, and
+	// never deletes one it wrote before the exclusion.
+	Kept []string
+	// syncMachines are the machines named only by [sync.machine.<name>] tables.
+	syncMachines []string
 }
 
 // Resolved is a mapping with rendered paths for one machine.
@@ -322,6 +327,9 @@ func Load(paths setup.Paths) (*Config, error) {
 	if c.Sync, problem = syncFor(raw, paths.Machine, version); problem != "" {
 		return bad(problem)
 	}
+	if t, _ := table(raw["sync"]); t != nil {
+		c.syncMachines = orderedKeys(md, "sync", "machine")
+	}
 	c.Values, ok = scalars(raw["values"])
 	if !ok {
 		return bad("[values] must be strings or numbers")
@@ -441,9 +449,11 @@ func (c *Config) Resolve(machine string) ([]Resolved, error) {
 		if e != nil {
 			return nil, e
 		}
+		// One file has one spelling, so "a" and "./a" are the same source to everything after.
 		if !filepath.IsAbs(src) {
 			src = c.Paths.Dot + "/" + src
 		}
+		src = filepath.Clean(src)
 		r := Resolved{Mapping: mp, Source: src}
 		for _, d := range mp.To {
 			s, e := Render(d, values, where)
@@ -474,6 +484,11 @@ func (c *Config) validate() error {
 			if !slices.Contains(machines, m) {
 				machines = append(machines, m)
 			}
+		}
+	}
+	for _, m := range c.syncMachines {
+		if !slices.Contains(machines, m) {
+			machines = append(machines, m)
 		}
 	}
 	slices.Sort(machines)

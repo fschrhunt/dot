@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 	"syscall"
+	"unicode/utf8"
 )
 
 // Error is a user-facing problem with a command exit code.
@@ -219,7 +220,9 @@ func glob(pat, s string) bool {
 			b.WriteString("[" + v + "]")
 			i = j
 		default:
-			b.WriteString(regexp.QuoteMeta(string(pat[i])))
+			_, size := utf8.DecodeRuneInString(pat[i:])
+			b.WriteString(regexp.QuoteMeta(pat[i : i+size]))
+			i += size - 1
 		}
 	}
 	b.WriteByte('$')

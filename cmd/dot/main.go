@@ -37,6 +37,9 @@ func dispatch(args []string, out, stderr io.Writer) (int, error) {
 	case "init":
 		return app.Init(paths, first, out, stderr)
 	case "sync":
+		if e := only(command, args, "--settled"); e != nil {
+			return 2, e
+		}
 		return dotsync.Run(paths, slices.Contains(args, "--settled"))
 	case "add":
 		return app.Add(paths, args, out, stderr)
@@ -60,6 +63,9 @@ func dispatch(args []string, out, stderr io.Writer) (int, error) {
 		}
 		return app.Undo(c, first, out, stderr)
 	case "timer", "install":
+		if e := only(command, args, "--remove"); e != nil {
+			return 2, e
+		}
 		return schedule.Run(paths, c.Sync, slices.Contains(args, "--remove"), out)
 	case "take":
 		if len(args) != 1 {
@@ -67,19 +73,27 @@ func dispatch(args []string, out, stderr io.Writer) (int, error) {
 		}
 		return app.Take(c, first, out)
 	case "apply":
-		var unknown []string
-		for _, s := range args {
-			if s != "-n" && s != "--force" {
-				unknown = append(unknown, s)
-			}
-		}
-		if len(unknown) > 0 {
-			slices.Sort(unknown)
-			return 2, setup.Fail("unknown option " + unknown[0] + " (dot apply [-n] [--force])")
+		if e := only(command, args, "-n", "--force"); e != nil {
+			return 2, e
 		}
 		return app.Apply(c, slices.Contains(args, "-n"), slices.Contains(args, "--force"), out, stderr)
 	}
 	return 2, setup.Fail("unknown command " + command + " (see dot help)")
+}
+
+// only rejects an argument a command does not take, naming the first in sorted order, so a
+// mistyped flag never runs the command without it.
+func only(command string, args []string, allowed ...string) error {
+	unknown := slices.DeleteFunc(slices.Clone(args), func(s string) bool { return slices.Contains(allowed, s) })
+	if len(unknown) == 0 {
+		return nil
+	}
+	slices.Sort(unknown)
+	usage := "dot " + command
+	for _, flag := range allowed {
+		usage += " [" + flag + "]"
+	}
+	return setup.Fail("unknown option " + unknown[0] + " (" + usage + ")")
 }
 
 // main prints each user problem on one prefixed line and exits with the handler's code.

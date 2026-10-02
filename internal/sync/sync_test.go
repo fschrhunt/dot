@@ -488,3 +488,12 @@ func TestSyncRefusesAnEditInsideAValueOfSeveralLines(t *testing.T) {
 	testutil.Equal(t, f.Sync().Code, 1)
 	testutil.Equal(t, f.Read(f.Paths.Dot, "t"), "Rules.\n{{block}}\n")
 }
+
+// TestSyncSeesTwoSpellingsOfOneSourceAsOneFile pins the behavior: a source mapped as "a" and as "./a" is one file, so its two names edited differently are both left alone.
+func TestSyncSeesTwoSpellingsOfOneSourceAsOneFile(t *testing.T) {
+	f := testutil.New(t)
+	twoWay(t, f, "a = \"~/a\"\n\"./a\" = \"~/alias\"\n", map[string]string{"a": "old\n"})
+	f.Write(f.Paths.Home, map[string]string{"a": "one\n", "alias": "other\n"})
+	testutil.Equal(t, f.Sync().Code, 1)
+	testutil.Equal(t, f.Read(f.Paths.Dot, "a")+f.Read(f.Paths.Home, "a")+f.Read(f.Paths.Home, "alias"), "old\none\nother\n")
+}

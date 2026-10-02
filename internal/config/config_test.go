@@ -163,3 +163,14 @@ func TestBadSyncMachineTableIsErrorEverywhere(t *testing.T) {
 	f := testutil.New(t)
 	invalid(t, f, "[sync.machine.server]\ntimeout = \"never\"\n", "dot: dot.toml: [sync.machine.server] timeout must be whole seconds, minutes or hours", nil)
 }
+
+// TestAMachineNamedOnlyBySyncIsValidated pins the behavior: a machine that only [sync.machine.<name>] names has its sources checked like any other.
+func TestAMachineNamedOnlyBySyncIsValidated(t *testing.T) {
+	f := testutil.New(t)
+	f.Config("[sync.machine.server]\nevery = \"1m\"\n[files]\n\"config.{{machine}}\" = \"~/config\"\n", map[string]string{"config.laptop": "laptop\n"})
+	r := f.Status("")
+	testutil.Equal(t, r.Code, 2)
+	if !strings.Contains(r.Output, "on server: missing source") {
+		t.Fatal(r.Output)
+	}
+}

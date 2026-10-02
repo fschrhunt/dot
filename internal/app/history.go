@@ -89,8 +89,14 @@ func Log(c *config.Config, path string, out io.Writer) (int, error) {
 // Undo takes one managed path back to how the setup had it before its last change, records
 // that as a new commit named for the machine, and applies it; the next sync sends it on. It is
 // itself a change, so a second undo brings the path forward again. It refuses a path with
-// changes not yet synced, which it would otherwise bury, and a path whose last change added it.
+// changes not yet synced, which it would otherwise bury, a path whose last change added it, and
+// a one-way setup, where its commit could not be pushed.
 func Undo(c *config.Config, path string, out, stderr io.Writer) (int, error) {
+	// A commit made here must be able to reach the remote: a one-way setup only fast-forwards,
+	// so a local commit would stop every later sync.
+	if !c.Take {
+		return 2, setup.Fail("dot undo needs a setup that syncs both ways (version 2, with take on); here, use git revert in " + c.Paths.Show(c.Paths.Dot))
+	}
 	p := c.Paths.Abs(path)
 	shown := c.Paths.Show(p)
 	kept, e := sources(c, p)
@@ -122,10 +128,11 @@ func Undo(c *config.Config, path string, out, stderr io.Writer) (int, error) {
 	if hash == "" {
 		return 2, setup.Fail(shown + " has no history in the setup yet")
 	}
-	for _, source := range kept {
-		if _, e := git(c.Paths, "cat-file", "-e", hash+"^:"+filepath.ToSlash(source)); e != nil {
-			return 2, setup.Fail(shown + " was added by its last change (" + name + "), so there is nothing earlier to go back to; dot forget " + shown + " stops managing it")
-		}
+	if !slices.ContainsFunc(kept, func(source string) bool {
+		_, e := git(c.Paths, "cat-file", "-e", hash+"^:"+filepath.ToSlash(source))
+		return e == nil
+	}) {
+		return 2, setup.Fail(shown + " was added by its last change (" + name + "), so there is nothing earlier to go back to; dot forget " + shown + " stops managing it")
 	}
 	if _, e := git(c.Paths, append([]string{"restore", "--source=" + hash + "^", "--staged", "--worktree", "--"}, kept...)...); e != nil {
 		return 2, e

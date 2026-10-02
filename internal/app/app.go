@@ -149,9 +149,10 @@ func Apply(c *config.Config, dry, force bool, out, stderr io.Writer) (int, error
 	return 0, nil
 }
 
-// Take copies live managed paths back to their source. An edit to a rendered file is carried
-// into its template when rendering the result gives the edited file again, and is otherwise
-// refused with a diff.
+// Take copies live managed paths back to their source: one file, a mirrored folder with its
+// new files, or every managed file under a folder. An edit to a rendered file is carried into
+// its template when rendering the result gives the edited file again, and is otherwise refused
+// with a diff.
 func Take(c *config.Config, path string, out io.Writer) (int, error) {
 	p := c.Paths.Abs(path)
 	want, roots, _, e := plan.Wants(c)
@@ -170,6 +171,18 @@ func Take(c *config.Config, path string, out io.Writer) (int, error) {
 	maps, e := c.Resolve(c.Paths.Machine)
 	if e != nil {
 		return 2, e
+	}
+	var root *plan.Root
+	for i, r := range roots {
+		if (p == r.Path || setup.Under(p, r.Path)) && (root == nil || len(r.Path) > len(root.Path)) {
+			root = &roots[i]
+		}
+	}
+	// A folder of separate destinations is taken file by file in a version 2 setup, where
+	// home/ makes one of every folder. Version 1 refuses it, before anything is written.
+	single := hits[p].Kind != "" && hits[p].Kind != "dir"
+	if !single && root == nil && c.Version < 2 {
+		return 2, setup.Fail(c.Paths.Show(p) + " holds several destinations; take them one at a time")
 	}
 	rendered := false
 	for _, mp := range maps {
@@ -205,21 +218,17 @@ func Take(c *config.Config, path string, out io.Writer) (int, error) {
 	if rendered {
 		return 0, nil
 	}
-	var root *plan.Root
-	for i, r := range roots {
-		if (p == r.Path || setup.Under(p, r.Path)) && (root == nil || len(r.Path) > len(root.Path)) {
-			root = &roots[i]
-		}
-	}
 	type pair struct{ live, src string }
 	var pairs []pair
-	if w, ok := hits[p]; ok && w.Kind != "dir" {
-		pairs = append(pairs, pair{p, w.Src})
-	}
-	if len(pairs) == 0 && root == nil {
-		return 2, setup.Fail(c.Paths.Show(p) + " holds several destinations; take them one at a time")
-	}
-	if len(pairs) == 0 {
+	if single {
+		pairs = append(pairs, pair{p, hits[p].Src})
+	} else if root == nil {
+		for _, q := range plan.Keys(hits) {
+			if w := hits[q]; w.Kind != "dir" && !w.Template && setup.Exists(q) {
+				pairs = append(pairs, pair{q, w.Src})
+			}
+		}
+	} else {
 		if !setup.IsDir(p) {
 			s := " is not a folder"
 			if !setup.Exists(p) {

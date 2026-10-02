@@ -266,6 +266,9 @@ func TestSyncRecordsARebaseConflict(t *testing.T) {
 		t.Fatal(f.Read(f.Paths.State, "conflict"))
 	}
 	testutil.Equal(t, strings.TrimSpace(f.Git(f.Paths.Dot, "status", "--porcelain", "--untracked-files=no")), "")
+	if r := f.Status(""); !strings.HasPrefix(r.Output, "conflict: ") {
+		t.Fatal(r.Output)
+	}
 }
 
 // TestSyncCommitsAnEditMadeInTheSetup pins the behavior: a source edited in the setup itself is committed and applied, not refused.
@@ -288,4 +291,33 @@ func TestSettledSyncWaitsForAFileToRest(t *testing.T) {
 		t.Fatal(code, e)
 	}
 	testutil.Equal(t, f.Read(f.Paths.Home, "a")+f.Read(f.Paths.Dot, "a"), "2\n1\n")
+}
+
+// rendered seeds a version 2 setup whose one template has two names, applies it, and returns nothing.
+func rendered(t *testing.T, f *testutil.Fixture) {
+	t.Helper()
+	f.Remote("version = 2\n[templates]\n\"t.md\" = [\"~/CLAUDE.md\", \"~/AGENTS.md\"]\n", map[string]string{"t.md": "Machine {{machine}}\nRules.\n"})
+	testutil.OK(t, f.Sync())
+}
+
+// TestSyncTakesAnEditToARenderedFile pins the behavior: an edit to a rendered file goes back into its template with the placeholders intact.
+func TestSyncTakesAnEditToARenderedFile(t *testing.T) {
+	f := testutil.New(t)
+	rendered(t, f)
+	f.Write(f.Paths.Home, map[string]string{"AGENTS.md": "Machine laptop\nRules.\nMore.\n"})
+	testutil.OK(t, f.Sync())
+	testutil.Equal(t, f.Read(f.Paths.Dot, "t.md"), "Machine {{machine}}\nRules.\nMore.\n")
+	testutil.Equal(t, f.Read(f.Paths.Home, "CLAUDE.md"), "Machine laptop\nRules.\nMore.\n")
+}
+
+// TestSyncRefusesAnEditToAFilledLine pins the behavior: an edit to a line the template fills in is not taken.
+func TestSyncRefusesAnEditToAFilledLine(t *testing.T) {
+	f := testutil.New(t)
+	rendered(t, f)
+	f.Write(f.Paths.Home, map[string]string{"AGENTS.md": "Machine desk\nRules.\n"})
+	testutil.Equal(t, f.Sync().Code, 1)
+	testutil.Equal(t, f.Read(f.Paths.Dot, "t.md"), "Machine {{machine}}\nRules.\n")
+	if last := f.Read(f.Paths.State, "last"); !strings.Contains(last, "not taken: ~/AGENTS.md (it changes a line that ~/.dot/t.md fills in") {
+		t.Fatal(last)
+	}
 }

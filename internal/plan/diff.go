@@ -103,6 +103,36 @@ func lines(s string) []string {
 	return out
 }
 
+// Unrender carries an edit made to a rendered file back to its template. rendered is what the
+// template renders to now and edited is the live file. Lines the edit left alone keep the
+// template's text, placeholders included; lines it changed or added take the live text, which is
+// only safe where the template's own lines were plain. ok is false when the edit touches a line
+// the template fills in, or when template and rendered do not line up one line to one line.
+// The caller must still render the result and compare it with edited before trusting it.
+func Unrender(template, rendered, edited string) (string, bool) {
+	t, r, l := lines(template), lines(rendered), lines(edited)
+	if len(t) != len(r) {
+		return "", false
+	}
+	var out strings.Builder
+	i, j := 0, 0
+	for _, m := range matches(r, l) {
+		for ; i < m.a; i++ {
+			if t[i] != r[i] {
+				return "", false
+			}
+		}
+		for ; j < m.b; j++ {
+			out.WriteString(l[j])
+		}
+		for n := 0; n < m.n; n++ {
+			out.WriteString(t[i+n])
+		}
+		i, j = i+m.n, j+m.n
+	}
+	return out.String(), true
+}
+
 // span formats a unified diff range, including empty and single-line ranges.
 func span(start, end int) string {
 	n := end - start

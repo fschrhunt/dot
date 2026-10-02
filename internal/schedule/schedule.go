@@ -110,7 +110,7 @@ func Run(paths setup.Paths, s config.Sync, remove bool, out io.Writer) (int, err
 				return 2, e
 			}
 			var b strings.Builder
-			b.WriteString("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\"><dict>\n<key>Label</key><string>" + label + "</string>\n<key>ProgramArguments</key><array><string>" + escaped(program) + "</string><string>sync</string></array>\n<key>RunAtLoad</key><true/>\n<key>StartInterval</key><integer>" + fmt.Sprint(int64(every/time.Second)) + "</integer>\n<key>EnvironmentVariables</key><dict>")
+			b.WriteString("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\"><dict>\n<key>Label</key><string>" + label + "</string>\n<key>ProgramArguments</key><array><string>" + escaped(program) + "</string><string>sync</string><string>--settled</string></array>\n<key>RunAtLoad</key><true/>\n<key>StartInterval</key><integer>" + fmt.Sprint(int64(every/time.Second)) + "</integer>\n<key>EnvironmentVariables</key><dict>")
 			for _, p := range env {
 				b.WriteString("<key>" + escaped(p.k) + "</key><string>" + escaped(p.v) + "</string>")
 			}
@@ -141,7 +141,7 @@ func Run(paths setup.Paths, s config.Sync, remove bool, out io.Writer) (int, err
 			for _, p := range env {
 				environment += "Environment=" + quote(p.k+"="+p.v, false) + "\n"
 			}
-			service := "[Unit]\nDescription=dot sync\n\n[Service]\nType=oneshot\n" + environment + "ExecStart=" + quote(program, true) + " " + quote("sync", true) + "\n"
+			service := "[Unit]\nDescription=dot sync\n\n[Service]\nType=oneshot\n" + environment + "ExecStart=" + quote(program, true) + " " + quote("sync", true) + " " + quote("--settled", true) + "\n"
 			// systemd fires a timer up to a minute late by default. That is a fifteenth of the
 			// default interval, so a shorter interval keeps the same proportion.
 			accuracy := ""

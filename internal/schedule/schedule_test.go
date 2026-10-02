@@ -113,7 +113,7 @@ func TestSystemdUnitEscapesValues(t *testing.T) {
 	}
 }
 
-// TestInstallRunsBinary pins the behavior: install runs binary.
+// TestInstallRunsBinary pins the behavior: the timer runs this binary's settled sync.
 func TestInstallRunsBinary(t *testing.T) {
 	f := testutil.New(t)
 	f.Config("", nil)
@@ -127,7 +127,7 @@ func TestInstallRunsBinary(t *testing.T) {
 		t.Fatal(e)
 	}
 	if runtime.GOOS == "linux" {
-		if !strings.Contains(timer, "ExecStart=\""+program+"\" \"sync\"\n") {
+		if !strings.Contains(timer, "ExecStart=\""+program+"\" \"sync\" \"--settled\"\n") {
 			t.Fatal(timer)
 		}
 	} else {
@@ -155,6 +155,6 @@ func TestInstallRunsBinary(t *testing.T) {
 				inArgs = false
 			}
 		}
-		testutil.Equal(t, strings.Join(args, "|"), program+"|sync")
+		testutil.Equal(t, strings.Join(args, "|"), program+"|sync|--settled")
 	}
 }

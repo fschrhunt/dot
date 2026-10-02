@@ -215,16 +215,20 @@ func look(q string, settle time.Duration) (found, bool, error) {
 }
 
 // take decides one group of live files that would all become the same source file. They are
-// taken when they agree, have settled, and add nothing that looks like a credential; then every
-// destination of that source wants the taken bytes. Otherwise each is held back: quietly when it
-// is only unsettled, and as a refused take with its reason when it needs the user.
-func take(p *Plan, src string, base []byte, group []found, dests []string, held map[string]bool) {
+// taken when they agree, have settled, add nothing that looks like a credential, and source can
+// turn their bytes into the source's; then every destination of that source wants the live
+// bytes. Otherwise each is held back: quietly when it is only unsettled, and as a refused take
+// with its reason when it needs the user. source is nil for a file copied as it is; for a
+// template it undoes the rendering and returns why it cannot.
+func take(p *Plan, paths setup.Paths, src string, base []byte, group []found, dests []string, held map[string]bool, source func([]byte) ([]byte, string)) {
 	first := group[0]
-	note := ""
+	stored, note := first.data, ""
 	if slices.ContainsFunc(group, func(f found) bool { return f.sig != first.sig }) {
-		note = "edited differently under another of its names"
+		note = "edited differently under another of its names; dot take one of them to keep it"
 	} else if Secret(base, first.data) {
-		note = "looks like a credential"
+		note = "looks like a credential; dot take " + paths.Show(first.path) + " takes it anyway"
+	} else if source != nil {
+		stored, note = source(first.data)
 	}
 	for _, f := range group {
 		if note != "" {
@@ -237,12 +241,13 @@ func take(p *Plan, src string, base []byte, group []found, dests []string, held 
 	if note != "" || slices.ContainsFunc(group, func(f found) bool { return f.fresh }) {
 		return
 	}
-	w := setup.Want{Kind: "file", Data: first.data, Mode: first.mode, Sig: first.sig, Src: src}
-	p.Actions = append(p.Actions, Action{Mark: "<", Path: first.path, Op: "take", Want: w})
+	p.Actions = append(p.Actions, Action{Mark: "<", Path: first.path, Op: "take", Want: setup.Want{Kind: "file", Data: stored, Mode: first.mode, Sig: setup.Hash(stored), Src: src}})
 	for _, d := range dests {
-		if old, ok := p.Wants[d]; ok {
-			w.Mode = old.Mode
+		w := p.Wants[d]
+		if w.Kind == "" {
+			w = setup.Want{Kind: "file", Mode: first.mode, Src: src}
 		}
+		w.Data, w.Sig = first.data, first.sig
 		p.Wants[d] = w
 	}
 }
@@ -276,7 +281,7 @@ func Build(c *config.Config, written map[string]string, opt Options) (Plan, erro
 			var group []found
 			for _, q := range bySource[src] {
 				w := want[q]
-				if w.Kind != "file" || w.Template || written[q] != w.Sig || ViaLink(q, tops) {
+				if w.Kind != "file" || written[q] != w.Sig || ViaLink(q, tops) {
 					continue
 				}
 				f, ok, e := look(q, opt.Settle)
@@ -287,9 +292,32 @@ func Build(c *config.Config, written map[string]string, opt Options) (Plan, erro
 					group = append(group, f)
 				}
 			}
-			if len(group) > 0 {
-				take(&p, src, want[bySource[src][0]].Data, group, bySource[src], held)
+			if len(group) == 0 {
+				continue
 			}
+			first := want[bySource[src][0]]
+			var source func([]byte) ([]byte, string)
+			if first.Template {
+				// An edit to a rendered file goes back into the template only if rendering the
+				// result gives exactly the edited file again.
+				source = func(live []byte) ([]byte, string) {
+					refused := "it changes a line that " + c.Paths.Show(src) + " fills in; edit that template instead"
+					raw, e := os.ReadFile(src)
+					if e != nil {
+						return nil, refused
+					}
+					template := strings.ReplaceAll(strings.ReplaceAll(string(raw), "\r\n", "\n"), "\r", "\n")
+					patched, ok := Unrender(template, string(first.Data), string(live))
+					if !ok {
+						return nil, refused
+					}
+					if again, e := config.Render(patched, c.ValuesFor(c.Paths.Machine), src); e != nil || again != string(live) {
+						return nil, refused
+					}
+					return []byte(patched), ""
+				}
+			}
+			take(&p, c.Paths, src, first.Data, group, bySource[src], held, source)
 		}
 	}
 	for _, q := range Keys(written) {
@@ -360,7 +388,7 @@ func Build(c *config.Config, written map[string]string, opt Options) (Plan, erro
 				}
 				if !ok {
 					held[q] = true
-					p.Actions = append(p.Actions, Action{Mark: "!", Path: q, Op: "take", Note: "not a regular file"})
+					p.Actions = append(p.Actions, Action{Mark: "!", Path: q, Op: "take", Note: "it is not a regular file; add it to the setup by hand"})
 					continue
 				}
 				source := filepath.Join(r.Source, rel)
@@ -384,7 +412,7 @@ func Build(c *config.Config, written map[string]string, opt Options) (Plan, erro
 		}
 	}
 	for _, a := range additions {
-		take(&p, a.source, nil, a.files, a.dests, held)
+		take(&p, c.Paths, a.source, nil, a.files, a.dests, held, nil)
 	}
 	for _, q := range Keys(p.Wants) {
 		w := p.Wants[q]
@@ -462,7 +490,7 @@ func Refusal(paths setup.Paths, a Action) string {
 	}
 	q, op := paths.Show(a.Path), a.Op
 	if op == "take" {
-		return "not taken: " + q + " (" + a.Note + "; dot take " + q + " takes it anyway)"
+		return "not taken: " + q + " (" + a.Note + ")"
 	}
 	if a.Note != "" {
 		return "edited here: " + q + " (" + a.Note + ")"

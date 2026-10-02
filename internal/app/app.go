@@ -77,6 +77,11 @@ func Status(c *config.Config, path string, out io.Writer) (int, error) {
 		}
 		return code, nil
 	}
+	if b, e := os.ReadFile(filepath.Join(c.Paths.State, "conflict")); e == nil {
+		fmt.Fprintln(out, strings.TrimSpace(string(b)))
+	} else if !os.IsNotExist(e) {
+		return 2, e
+	}
 	if b, e := os.ReadFile(filepath.Join(c.Paths.State, "last")); e == nil {
 		fmt.Fprintln(out, "last sync:", strings.TrimSpace(string(b)))
 	} else if !os.IsNotExist(e) {

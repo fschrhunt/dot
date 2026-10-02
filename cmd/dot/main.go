@@ -38,6 +38,8 @@ func dispatch(args []string, out, stderr io.Writer) (int, error) {
 		return app.Init(paths, first, out, stderr)
 	case "sync":
 		return dotsync.Run(paths, slices.Contains(args, "--settled"))
+	case "add":
+		return app.Add(paths, args, out, stderr)
 	}
 	c, e := config.Load(paths)
 	if e != nil {
@@ -46,6 +48,10 @@ func dispatch(args []string, out, stderr io.Writer) (int, error) {
 	switch command {
 	case "status":
 		return app.Status(c, first, out)
+	case "forget":
+		return app.Forget(c, args, out)
+	case "agents":
+		return app.Agents(c, out)
 	case "timer", "install":
 		return schedule.Run(paths, c.Sync, slices.Contains(args, "--remove"), out)
 	case "take":

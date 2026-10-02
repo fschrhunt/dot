@@ -1,20 +1,29 @@
-# dot.toml: what dot writes on each machine. Edit, commit, then run dot apply (or wait for sync).
-version = 1
+# dot.toml: optional settings. The folders beside this file say where things go:
+#   home/     mirrors your home folder: home/.gitconfig is written to ~/.gitconfig
+#   agents/   is shared by every agent: agents/instructions.md becomes ~/.claude/CLAUDE.md,
+#             ~/.codex/AGENTS.md and so on, and agents/skills/<name>/ reaches each skills folder
+# Add a file with `dot add <path>`, edit it where it lives, and `dot sync` carries the edit.
+version = 2
 exclude = [".DS_Store", "*.tmp"]     # never copied, never deleted
 
 [sync]
-push = true                          # push local commits the remote lacks (fast-forward only)
 every = "15m"                        # how often the timer syncs; run dot timer after changing it
+# take = false                       # one-way: never take edits made on a machine
 
-[values]                             # {{name}} in templates, sources and destinations
-workspace_root = "~/Code"
+[values]                             # {{name}} in files whose names end in .tmpl
+# workspace_root = "~/Code"
 
-[machine.server]                     # overrides for the machine named server
-workspace_root = "~/src"
+# [machine.server]                   # values that differ on the machine named server
+# workspace_root = "~/src"
 
-[templates]                          # rendered, then written to each destination
-"instructions.md" = ["~/.claude/CLAUDE.md", "~/.codex/AGENTS.md"]
+# [agent.myagent]                    # an agent dot does not know; dot agents lists the ones it does
+# home = "~/.myagent"
+# instructions = "RULES.md"
+# skills = "skills"
 
-[files]                              # copied verbatim; add your own, for example:
-# "skills/review" = ["~/.claude/skills/review", "~/.codex/skills/review"]
-# "zsh" = { to = "~/.config/zsh", mirror = false, exclude = ["local.zsh"], machines = ["laptop"] }
+# [only]                             # limit a path to some agents or some machines
+# "agents/skills/browser" = { agents = ["claude", "codex"] }
+# "home/.config/hypr" = { machines = ["desktop"] }
+
+# [files]                            # anything the folders cannot say: any source to any path
+# "code/README.md" = "{{workspace_root}}/README.md"

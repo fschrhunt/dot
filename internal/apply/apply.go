@@ -57,6 +57,31 @@ func save(paths setup.Paths, written map[string]string) error {
 	return setup.Write(filepath.Join(paths.State, "written.json"), setup.Want{Kind: "file", Data: []byte(ascii.String()), Mode: 0644})
 }
 
+// Disown removes live paths from the record of what dot wrote, along with any folder record
+// above them that no recorded path still sits in, so a later apply leaves those paths alone.
+func Disown(paths setup.Paths, live []string) error {
+	written, e := ReadWritten(paths)
+	if e != nil {
+		return e
+	}
+	for _, q := range live {
+		delete(written, q)
+	}
+	for q, s := range written {
+		if s != "dir" {
+			continue
+		}
+		used := false
+		for other := range written {
+			used = used || setup.Under(other, q)
+		}
+		if !used {
+			delete(written, q)
+		}
+	}
+	return save(paths, written)
+}
+
 // prune removes empty parents up to a dropped root, retaining directories still in the source.
 func prune(p string, tops, dropped []string, want map[string]setup.Want) {
 	top := ""

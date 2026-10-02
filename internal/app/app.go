@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	dot "github.com/fschrhunt/dot"
@@ -21,20 +22,25 @@ import (
 const Usage = `dot: the dotfiles manager.
 
 usage:
-  dot [status [path]]       show what apply would do; with a path, a diff for it
-                            (+ new, ~ changed, - removed, ! edited here, ? extra)
-  dot apply [-n] [--force]  write the plan; -n only prints it; --force overwrites files edited here
-                            (> run is a mapping's command, run after its files change)
-  dot sync                  pull, push when ahead and push is on, then apply (the timer runs this)
-  dot take <path>           copy a live file or folder back to its source in the setup
+  dot [status [path]]       show what sync would do; with a path, a diff for it
+                            (< take, + new, ~ changed, - removed, ! edited here, ? extra)
+  dot add [--only] <path>   start managing a file or folder; an agent's instructions or skill is
+                            shared with every agent, unless --only keeps it to that agent
+  dot forget <path>         stop managing a path; the live file stays
+  dot sync                  take live edits, commit, pull, push, then apply (the timer runs this)
+  dot apply [-n] [--force]  only write the setup here; -n prints the plan; --force overwrites
+                            files edited here (> run is a mapping's command, run after a change)
+  dot take <path>           only copy a live file or folder back to its source in the setup
+  dot agents                the agents dot knows, which are installed here, and their places
   dot init [remote]         create the setup from the example, or clone it from a git remote
   dot timer [--remove]      run dot sync on a timer on this machine, every 15 minutes unless
                             [sync] every says otherwise (or stop it)
   dot help                  this text and a summary of the setup
   dot version               print the binary version (also --version)
 
-The setup is ~/.dot (or DOT_HOME): dot.toml plus the sources it names. The machine name is
-hostname -s (or DOT_MACHINE). Edit sources there and commit; never edit the destinations.`
+The setup is ~/.dot (or DOT_HOME), a git repository: home/ mirrors your home folder, agents/ is
+shared by every agent, and dot.toml holds anything else. The machine name is hostname -s (or
+DOT_MACHINE). Edit files where they live; a version 1 setup is applied one way, as before.`
 
 // Status prints the last sync and plan, or the diff under path; actionable changes exit 1.
 func Status(c *config.Config, path string, out io.Writer) (int, error) {
@@ -287,14 +293,14 @@ func Init(paths setup.Paths, remote string, out, stderr io.Writer) (int, error) 
 			return 2, e
 		}
 	}
-	fmt.Fprintf(out, "Created %s. Next: edit %s/dot.toml, run dot apply, then dot timer.\n", paths.Show(paths.Dot), paths.Show(paths.Dot))
+	fmt.Fprintf(out, "Created %s. Next: dot add the files you want managed, then dot sync and dot timer.\n", paths.Show(paths.Dot))
 	return 0, nil
 }
 
 // Help prints usage and an ordered summary of values and mappings, even before init.
 func Help(paths setup.Paths, out io.Writer) (int, error) {
 	fmt.Fprintln(out, Usage)
-	if !setup.Exists(filepath.Join(paths.Dot, "dot.toml")) {
+	if !slices.ContainsFunc([]string{"dot.toml", "home", "agents"}, func(name string) bool { return setup.Exists(filepath.Join(paths.Dot, name)) }) {
 		fmt.Fprintf(out, "\nNo setup at %s yet: run dot init.\n", paths.Show(paths.Dot))
 		return 0, nil
 	}

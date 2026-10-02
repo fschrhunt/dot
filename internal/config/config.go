@@ -393,6 +393,9 @@ func Load(paths setup.Paths) (*Config, error) {
 	}
 	if version >= 2 {
 		rules, problem := onlyFrom(raw, md)
+		if problem == "" {
+			problem = checkOnly(rules, c.Agents)
+		}
 		if problem != "" {
 			return bad(problem)
 		}

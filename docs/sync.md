@@ -18,7 +18,8 @@ In order, sync:
 1. Takes `.state/lock`. If another sync holds it, exits quietly with 0.
 2. Takes each edit into the setup. An edit under one name of a file is written to its other
    names. A new file inside a shared folder, such as a skill, is taken as part of it.
-3. Commits what changed in the setup, as `<machine>: <paths>`.
+3. Commits what changed in the setup, as `<machine>: <paths>`. If a line being committed looks
+   like a credential, or the setup no longer loads, sync stops here and says so.
 4. Pulls with `git pull --rebase`, so this machine's commits sit on top of the remote's.
 5. Pushes, when `[sync] push` is on.
 6. Applies the setup to the machine.
@@ -36,14 +37,20 @@ A version 1 setup, or a machine with `[sync] take = false`, skips steps 2 and 3,
   file and `dot apply --force` keeps the setup's.
 - **Take a deletion.** A managed file you delete is written again. `dot forget <path>` is how a
   path stops being managed.
-- **Take what looks like a credential.** An edit that adds a private key block or a token with a
-  well-known prefix is held back and reported; `dot take <path>` takes it anyway. This is a seat
-  belt, not a scanner: do not rely on it to keep secrets out.
+- **Take or commit what looks like a credential.** An edit that adds a private key block or a
+  token with a well-known prefix is held back and reported. Sync also refuses to commit such a
+  line however it reached the setup: if it belongs there, `dot take <path>` and commit it
+  yourself. This is a seat belt, not a scanner: do not rely on it to keep secrets out.
+- **Commit a setup that does not load.** If an edit inside `~/.dot` leaves `dot.toml` or a mapping
+  broken, sync stops and names what to fix, so a half-finished edit never reaches other machines.
 - **Take an edit to a line a template fills in.** An edit to a rendered file goes back into its
   template, but only on lines the template leaves as they are.
 - **Replace a file that changed while it ran.** The file is reported and taken on the next run.
 - **Take a file still being written.** The timer leaves a file modified in the last minute for
-  its next run. A sync you run yourself takes it at once.
+  its next run, and does nothing at all while a file inside `~/.dot` was edited that recently.
+  A sync you run yourself goes ahead at once.
+- **Remove a file it did not write.** A new file in a shared folder is taken, never deleted;
+  `dot apply` alone lists it as `? extra` and leaves it for sync.
 
 ## When two machines change the same lines
 
@@ -55,7 +62,12 @@ nothing, applies the local setup, and exits 1. `dot status` then begins with:
 conflict: this machine and the remote changed the same lines; in ~/.dot run git pull --rebase, fix the files it names, git rebase --continue, then dot sync
 ```
 
-The message stays until a pull succeeds.
+The message stays until a pull succeeds. While you are resolving it, sync refuses to run and
+leaves your rebase alone:
+
+```text
+refused: a rebase is in progress in ~/.dot (git rebase --continue once the files are fixed, or git rebase --abort)
+```
 
 For compatibility, the setup must have a `.git` directory. A git worktree with a `.git`
 file is refused. Use a regular clone for your setup.
@@ -142,7 +154,8 @@ dot status ~/.zshrc
 dot apply --force
 ```
 
-Templates must be edited in the setup. take cannot reconstruct a template from its output.
+For a rendered file, take carries the edit into its template when it touches only lines the
+template leaves as they are; an edit to a line the template fills in belongs in the template.
 If a dropped file was edited, remove it yourself or use `dot apply --force`.
 
 ## Diverged branches or remote failures

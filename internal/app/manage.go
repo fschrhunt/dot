@@ -60,12 +60,17 @@ func home(c *config.Config, p string, only bool) (source, live string, shared bo
 	return filepath.Join("home", rel), p, false, nil
 }
 
-// copyIn copies a live file, link or folder into the setup, skipping excluded names.
-func copyIn(c *config.Config, live, source string) error {
+// copyIn copies a live file, link or folder into the setup, skipping excluded names. A file
+// that looks like it holds a credential is left out and named on out: a single one is an error.
+func copyIn(c *config.Config, live, source string, out io.Writer) error {
+	secret := func(w setup.Want) bool { return w.Kind == "file" && plan.Secret(nil, w.Data) }
 	if !setup.IsDir(live) || setup.IsLink(live) {
 		w, e := setup.WantOf(live, nil)
 		if e != nil {
 			return e
+		}
+		if secret(w) {
+			return setup.Fail("it looks like it holds a credential; copy it into the setup yourself if it belongs there")
 		}
 		return setup.Write(source, w)
 	}
@@ -78,6 +83,10 @@ func copyIn(c *config.Config, live, source string) error {
 			w, e := setup.WantOf(filepath.Join(dir, name), nil)
 			if e != nil {
 				return e
+			}
+			if secret(w) {
+				fmt.Fprintf(out, "left out %s: it looks like it holds a credential\n", c.Paths.Show(filepath.Join(dir, name)))
+				continue
 			}
 			if e := setup.Write(filepath.Join(source, rel), w); e != nil {
 				return e
@@ -116,6 +125,9 @@ func Add(paths setup.Paths, args []string, out, stderr io.Writer) (int, error) {
 			fmt.Fprintf(out, "%s is already managed\n", paths.Show(p))
 			continue
 		}
+		if slices.ContainsFunc(c.Agents, func(a config.Agent) bool { return a.Home != "" && p == paths.Expand(a.Home) }) {
+			return 2, setup.Fail(paths.Show(p) + " is an agent's whole folder, sessions and credentials included; add the files and skills you want from it")
+		}
 		source, live, shared, e := home(c, p, only)
 		if e != nil {
 			return 2, e
@@ -125,7 +137,7 @@ func Add(paths setup.Paths, args []string, out, stderr io.Writer) (int, error) {
 			fmt.Fprintf(out, "%s is already in the setup as %s; dot status shows how they differ\n", paths.Show(live), source)
 			continue
 		}
-		if e := copyIn(c, live, target); e != nil {
+		if e := copyIn(c, live, target, out); e != nil {
 			return 2, setup.Fail("cannot add " + paths.Show(live) + ": " + setup.Reason(e))
 		}
 		note := ""
@@ -142,12 +154,13 @@ func Add(paths setup.Paths, args []string, out, stderr io.Writer) (int, error) {
 
 // Forget stops managing live paths: their sources leave the setup and dot forgets it wrote
 // them, so the live files stay where they are. A path with several names is forgotten under
-// all of them. A path mapped in dot.toml is not touched; its line is the user's to remove.
+// all of them. A path mapped in dot.toml is not touched; its line is the user's to remove. A
+// path inside a shared unit is refused, since the unit would only take it back.
 func Forget(c *config.Config, args []string, out io.Writer) (int, error) {
 	if len(args) == 0 {
 		return 2, setup.Fail("usage: dot forget <path>...")
 	}
-	want, _, _, e := plan.Wants(c)
+	want, roots, _, e := plan.Wants(c)
 	if e != nil {
 		return 2, e
 	}
@@ -171,6 +184,11 @@ func Forget(c *config.Config, args []string, out io.Writer) (int, error) {
 		if !found {
 			return 2, setup.Fail(c.Paths.Show(p) + " is not managed by dot")
 		}
+		for _, r := range roots {
+			if setup.Under(p, r.Path) {
+				return 2, setup.Fail(c.Paths.Show(p) + " is part of " + c.Paths.Show(r.Path) + ", which dot manages whole; forget that, or remove the file from " + c.Paths.Show(r.Source))
+			}
+		}
 		fmt.Fprintf(out, "forgot %s; it stays where it is\n", c.Paths.Show(p))
 	}
 	var names []string
@@ -186,7 +204,8 @@ func Forget(c *config.Config, args []string, out io.Writer) (int, error) {
 		if e := os.RemoveAll(source); e != nil {
 			return 2, e
 		}
-		for dir := filepath.Dir(source); setup.Under(dir, c.Paths.Dot); dir = filepath.Dir(dir) {
+		// home/ and agents/ themselves stay: they are what makes the folder a setup.
+		for dir := filepath.Dir(source); setup.Under(filepath.Dir(dir), c.Paths.Dot); dir = filepath.Dir(dir) {
 			if os.Remove(dir) != nil {
 				break
 			}

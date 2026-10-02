@@ -133,7 +133,9 @@ func Apply(c *config.Config, dry, force bool, out, stderr io.Writer) (int, error
 	return 0, nil
 }
 
-// Take copies live managed paths back to their source, refusing rendered destinations.
+// Take copies live managed paths back to their source. An edit to a rendered file is carried
+// into its template when rendering the result gives the edited file again, and is otherwise
+// refused with a diff.
 func Take(c *config.Config, path string, out io.Writer) (int, error) {
 	p := c.Paths.Abs(path)
 	want, roots, _, e := plan.Wants(c)
@@ -153,19 +155,39 @@ func Take(c *config.Config, path string, out io.Writer) (int, error) {
 	if e != nil {
 		return 2, e
 	}
+	rendered := false
 	for _, mp := range maps {
 		if !mp.Template {
 			continue
 		}
 		for _, q := range mp.Dests {
 			w, ok := hits[q]
-			if ok {
+			if !ok {
+				continue
+			}
+			rendered = rendered || q == p
+			live, e := os.ReadFile(q)
+			if e != nil {
+				return 2, setup.Fail(c.Paths.Show(q) + " does not exist")
+			}
+			if setup.Hash(live) == w.Sig {
+				continue
+			}
+			patched, note := plan.Untemplate(c, w.Src, w.Data, live)
+			if note != "" {
 				if e := plan.Diff(out, c.Paths, q, w, true); e != nil {
 					return 2, e
 				}
-				return 1, setup.Fail(c.Paths.Show(q)+" is rendered from "+c.Paths.Show(w.Src)+"; edit the template instead", 1)
+				return 1, setup.Fail(c.Paths.Show(q)+" is rendered from "+c.Paths.Show(w.Src)+": "+note, 1)
 			}
+			if e := setup.Write(w.Src, setup.Want{Kind: "file", Data: patched}); e != nil {
+				return 2, e
+			}
+			fmt.Fprintf(out, "took %s -> %s\n", c.Paths.Show(q), c.Paths.Show(w.Src))
 		}
+	}
+	if rendered {
+		return 0, nil
 	}
 	var root *plan.Root
 	for i, r := range roots {

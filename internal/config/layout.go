@@ -1,6 +1,7 @@
 package config
 
 import (
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -120,6 +121,30 @@ func onlyFrom(raw map[string]any, md toml.MetaData) (map[string]only, string) {
 	return rules, ""
 }
 
+// checkOnly rejects a rule that could not mean what it says: a path outside the two folders,
+// agents on a path that is not shared, a path deeper than one shared unit, or an agent dot does
+// not know. A rule that matched nothing would otherwise drop a mapping without a word.
+func checkOnly(rules map[string]only, agents []Agent) string {
+	for _, path := range slices.Sorted(maps.Keys(rules)) {
+		where := "[only] \"" + path + "\""
+		parts := strings.Split(path, "/")
+		switch {
+		case parts[0] != "home" && parts[0] != "agents":
+			return where + " must be a path under home/ or agents/"
+		case parts[0] == "home" && rules[path].agents != nil:
+			return where + ": agents applies only to a path under agents/"
+		case parts[0] == "agents" && len(parts) > 3:
+			return where + " reaches inside a shared unit; a rule stops at the unit, such as agents/skills/<name>"
+		}
+		for _, name := range rules[path].agents {
+			if !slices.ContainsFunc(agents, func(a Agent) bool { return a.Name == name }) {
+				return where + ": no agent is named " + name + " (dot agents lists them)"
+			}
+		}
+	}
+	return ""
+}
+
 // ruleFor finds the rule for a path in the setup: its own, or the nearest folder's above it.
 func ruleFor(rules map[string]only, path string) only {
 	for p := path; p != "." && p != "/"; p = filepath.Dir(p) {
@@ -134,6 +159,7 @@ func ruleFor(rules map[string]only, path string) only {
 // home/X is written to ~/X, one mapping per file, so dot owns those files and nothing else in
 // the folders around them. An entry of agents/ is written to every installed agent that has a
 // place for its kind: a file as it is, and each child of a folder as a mirrored unit of its own.
+// Two agents whose places are the same real path, one being a link to the other, get one copy.
 // A name ending in .tmpl is a template and loses the suffix where it is written.
 func (c *Config) discover(rules map[string]only) (string, error) {
 	plain := func(name string) (string, bool) {
@@ -163,7 +189,7 @@ func (c *Config) discover(rules map[string]only) (string, error) {
 	}
 	for _, entry := range entries {
 		name := entry.Name()
-		if setup.Excluded(name, c.Exclude) {
+		if strings.HasPrefix(name, ".") || setup.Excluded(name, c.Exclude) {
 			continue
 		}
 		kind, _, _ := strings.Cut(name, ".")
@@ -191,12 +217,17 @@ func (c *Config) discover(rules map[string]only) (string, error) {
 			if unit == "" {
 				_, m.Template = plain(name)
 			}
+			seen := map[string]bool{}
 			for _, a := range c.Agents {
 				place := a.Place(c.Paths, kind)
 				if place == "" || !a.Installed(c.Paths) || rule.agents != nil && !slices.Contains(rule.agents, a.Name) {
 					continue
 				}
-				m.To = append(m.To, filepath.Join(place, short))
+				to := filepath.Join(place, short)
+				if real := setup.Real(to); !seen[real] {
+					seen[real] = true
+					m.To = append(m.To, to)
+				}
 			}
 			if len(m.To) > 0 {
 				c.Maps = append(c.Maps, m)

@@ -40,7 +40,8 @@ exclude = [".DS_Store", "*.tmp"]
 ```
 
 Defaults to `[]`. For directory mappings, globs match each path segment.
-Excluded files are never copied or deleted, even if dot wrote them before.
+Excluded files are never copied or deleted, even if dot wrote them before; that holds for a
+file under `home/` or `agents/` too.
 Excludes do not suppress a mapping whose source is a single file.
 For compatibility, patterns matching `.` (such as `.*`) also skip every source descendant.
 Use specific names such as `.DS_Store` to avoid that quirk.
@@ -138,6 +139,9 @@ instructions = "RULES.md"
 
 `[agent.<name>]` adds an agent or changes a built-in one; see [agents](agents.md). `[only]`
 limits a path in the setup, and everything under it, to some agents or some machines.
+The path must be under `home/` or `agents/`, and no deeper than one shared unit such as
+`agents/skills/browser`. `agents` applies only under `agents/`. An agent name dot does not know
+is an error.
 
 ## values
 
@@ -184,7 +188,8 @@ Code: {{workspace_root}}
 Templates must be text files. Every `{{name}}` must be defined on every applicable machine.
 A template accepts the same string, array and table forms as a file mapping.
 A source symlink is validated as a template but copied as a symlink, as in the Python version.
-`dot take` refuses template destinations and shows a diff instead.
+Sync and `dot take` carry an edit to the rendered file back into the template when it touches
+only lines the template leaves as they are.
 
 ## files: one destination
 

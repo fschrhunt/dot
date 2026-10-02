@@ -32,7 +32,9 @@ dot agents
 
 Built in: `claude`, `codex`, `opencode`, `pi` and `cursor`. An agent counts as installed when
 its folder exists. dot writes only to installed agents and never creates an agent's folder, so a
-machine without Codex gets no `~/.codex`.
+machine without Codex gets no `~/.codex`. When one agent's folder is a link to another's, such
+as `~/.codex/skills` pointing at `~/.claude/skills`, dot writes the one real copy. A hidden file
+in `agents/`, such as `.DS_Store`, is ignored.
 
 ## Add or change an agent
 

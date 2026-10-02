@@ -88,3 +88,88 @@ func TestVersionOneIgnoresTheFolders(t *testing.T) {
 		t.Fatal("a version 1 setup applied its home/ folder")
 	}
 }
+
+// TestOnlyNamingAnUnknownAgentIsError pins the behavior: a rule naming an agent dot does not know is an error, not a skill silently dropped from every agent.
+func TestOnlyNamingAnUnknownAgentIsError(t *testing.T) {
+	f := testutil.New(t)
+	agents(t, f, ".claude")
+	f.Config("version = 2\n[only]\n\"agents/skills/review\" = { agents = [\"claud\"] }\n", map[string]string{"agents/skills/review/SKILL.md": "review\n"})
+	r := f.Status("")
+	testutil.Equal(t, r.Code, 2)
+	if !strings.Contains(r.Output, "no agent is named claud") {
+		t.Fatal(r.Output)
+	}
+}
+
+// TestOnlyLimitsAHomePathToSomeMachines pins the behavior: an [only] rule on a folder under home/ keeps everything in it from other machines.
+func TestOnlyLimitsAHomePathToSomeMachines(t *testing.T) {
+	f := testutil.New(t)
+	f.Config("version = 2\n[only]\n\"home/.config/hypr\" = { machines = [\"desktop\"] }\n", map[string]string{"home/.config/hypr/hypr.conf": "x\n", "home/.zshrc": "y\n"})
+	testutil.OK(t, f.Apply(false))
+	testutil.Equal(t, f.Read(f.Paths.Home, ".zshrc"), "y\n")
+	if _, e := os.Stat(filepath.Join(f.Paths.Home, ".config/hypr")); !os.IsNotExist(e) {
+		t.Fatal("the folder reached a machine the rule leaves out")
+	}
+}
+
+// TestAnEmptyHomeTurnsAnAgentOff pins the behavior: [agent.<name>] with home = "" stops dot writing to an installed agent.
+func TestAnEmptyHomeTurnsAnAgentOff(t *testing.T) {
+	f := testutil.New(t)
+	agents(t, f, ".claude", ".codex")
+	f.Config("version = 2\n[agent.codex]\nhome = \"\"\n", map[string]string{"agents/instructions.md": "rules\n"})
+	testutil.OK(t, f.Apply(false))
+	testutil.Equal(t, f.Read(f.Paths.Home, ".claude/CLAUDE.md"), "rules\n")
+	if _, e := os.Stat(filepath.Join(f.Paths.Home, ".codex/AGENTS.md")); !os.IsNotExist(e) {
+		t.Fatal("dot wrote to an agent that is turned off")
+	}
+}
+
+// TestAgentsThatShareAFolderGetOneCopy pins the behavior: when one agent's skills folder is a link to another's, the setup still loads and the skill is written once.
+func TestAgentsThatShareAFolderGetOneCopy(t *testing.T) {
+	f := testutil.New(t)
+	agents(t, f, ".claude/skills", ".codex")
+	if e := os.Symlink(filepath.Join(f.Paths.Home, ".claude/skills"), filepath.Join(f.Paths.Home, ".codex/skills")); e != nil {
+		t.Fatal(e)
+	}
+	f.Config("version = 2\n", map[string]string{"agents/skills/review/SKILL.md": "review\n"})
+	testutil.OK(t, f.Apply(false))
+	testutil.Equal(t, f.Read(f.Paths.Home, ".codex/skills/review/SKILL.md"), "review\n")
+	testutil.Equal(t, f.Status("").Output, "up to date\n")
+}
+
+// TestAHiddenFileInAgentsIsIgnored pins the behavior: a stray .DS_Store beside the shared entries does not stop the setup loading.
+func TestAHiddenFileInAgentsIsIgnored(t *testing.T) {
+	f := testutil.New(t)
+	agents(t, f, ".claude")
+	f.Config("version = 2\n", map[string]string{"agents/.DS_Store": "x", "agents/instructions.md": "rules\n"})
+	testutil.OK(t, f.Apply(false))
+	testutil.Equal(t, f.Read(f.Paths.Home, ".claude/CLAUDE.md"), "rules\n")
+}
+
+// TestASkillRemovedFromTheSetupLeavesEveryAgent pins the behavior: a shared skill deleted from agents/ is removed from each agent that had it.
+func TestASkillRemovedFromTheSetupLeavesEveryAgent(t *testing.T) {
+	f := testutil.New(t)
+	agents(t, f, ".claude", ".codex")
+	f.Config("version = 2\n", map[string]string{"agents/skills/review/SKILL.md": "review\n", "agents/skills/keep/SKILL.md": "keep\n"})
+	testutil.OK(t, f.Apply(false))
+	if e := os.RemoveAll(filepath.Join(f.Paths.Dot, "agents/skills/review")); e != nil {
+		t.Fatal(e)
+	}
+	testutil.OK(t, f.Apply(false))
+	for _, agent := range []string{".claude", ".codex"} {
+		if _, e := os.Stat(filepath.Join(f.Paths.Home, agent, "skills/review")); !os.IsNotExist(e) {
+			t.Fatal("the skill is still in " + agent)
+		}
+		testutil.Equal(t, f.Read(f.Paths.Home, agent+"/skills/keep/SKILL.md"), "keep\n")
+	}
+}
+
+// TestAFileExcludedAfterItWasWrittenStays pins the behavior: excluding a name under home/ that dot already wrote leaves the live file where it is.
+func TestAFileExcludedAfterItWasWrittenStays(t *testing.T) {
+	f := testutil.New(t)
+	f.Config("version = 2\n", map[string]string{"home/.config/tool/local": "mine\n"})
+	testutil.OK(t, f.Apply(false))
+	f.Config("version = 2\nexclude = [\"local\"]\n", nil)
+	testutil.OK(t, f.Apply(false))
+	testutil.Equal(t, f.Read(f.Paths.Home, ".config/tool/local"), "mine\n")
+}

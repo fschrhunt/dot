@@ -26,12 +26,13 @@ type Root struct {
 // Action describes a change; an empty Op is informational and must not mutate files.
 // A take copies the live file at Path into the setup at Want.Src. A run action's Path is its
 // command. Note says why a refused action was refused. Live is the path's signature when the
-// plan looked at it, kept only when Looked, so apply can refuse a path that changed since.
+// plan looked at it, kept only when Looked, so apply can refuse a path that changed since; a
+// take also keeps Base, its source's signature at that moment, for the same reason.
 type Action struct {
-	Mark, Path, Op string
-	Want           setup.Want
-	Note, Live     string
-	Looked         bool
+	Mark, Path, Op   string
+	Want             setup.Want
+	Note, Live, Base string
+	Looked           bool
 }
 
 // Options says how far a plan may go. With Take, an edit to a live file whose source has not
@@ -220,13 +221,13 @@ func look(q string, settle time.Duration) (found, bool, error) {
 // bytes. Otherwise each is held back: quietly when it is only unsettled, and as a refused take
 // with its reason when it needs the user. source is nil for a file copied as it is; for a
 // template it undoes the rendering and returns why it cannot.
-func take(p *Plan, paths setup.Paths, src string, base []byte, group []found, dests []string, held map[string]bool, source func([]byte) ([]byte, string)) {
+func take(p *Plan, paths setup.Paths, src string, base []byte, group []found, dests []string, held map[string]bool, source func([]byte) ([]byte, string)) error {
 	first := group[0]
 	stored, note := first.data, ""
 	if slices.ContainsFunc(group, func(f found) bool { return f.sig != first.sig }) {
 		note = "edited differently under another of its names; dot take one of them to keep it"
 	} else if Secret(base, first.data) {
-		note = "looks like a credential; dot take " + paths.Show(first.path) + " takes it anyway"
+		note = "looks like a credential; if it belongs in the setup, dot take " + paths.Show(first.path) + " and commit it yourself"
 	} else if source != nil {
 		stored, note = source(first.data)
 	}
@@ -239,9 +240,13 @@ func take(p *Plan, paths setup.Paths, src string, base []byte, group []found, de
 		}
 	}
 	if note != "" || slices.ContainsFunc(group, func(f found) bool { return f.fresh }) {
-		return
+		return nil
 	}
-	p.Actions = append(p.Actions, Action{Mark: "<", Path: first.path, Op: "take", Want: setup.Want{Kind: "file", Data: stored, Mode: first.mode, Sig: setup.Hash(stored), Src: src}})
+	at, e := setup.LiveSig(src)
+	if e != nil {
+		return e
+	}
+	p.Actions = append(p.Actions, Action{Mark: "<", Path: first.path, Op: "take", Want: setup.Want{Kind: "file", Data: stored, Mode: first.mode, Sig: setup.Hash(stored), Src: src}, Live: first.sig, Base: at, Looked: true})
 	for _, d := range dests {
 		w := p.Wants[d]
 		if w.Kind == "" {
@@ -250,6 +255,31 @@ func take(p *Plan, paths setup.Paths, src string, base []byte, group []found, de
 		w.Data, w.Sig = first.data, first.sig
 		p.Wants[d] = w
 	}
+	return nil
+}
+
+// Untemplate carries an edit made to a rendered file back into its template at src. rendered is
+// what the template gives now and live is the edited file. It returns the template's new text,
+// or why the edit cannot be carried: it touches a line the template fills in, rendering the
+// result does not give the edited file again, or it would write a credential into the template.
+func Untemplate(c *config.Config, src string, rendered, live []byte) ([]byte, string) {
+	refused := "it changes a line that " + c.Paths.Show(src) + " fills in; edit that template instead"
+	raw, e := os.ReadFile(src)
+	if e != nil {
+		return nil, refused
+	}
+	template := strings.ReplaceAll(strings.ReplaceAll(string(raw), "\r\n", "\n"), "\r", "\n")
+	patched, ok := Unrender(template, string(rendered), string(live))
+	if !ok {
+		return nil, refused
+	}
+	if again, e := config.Render(patched, c.ValuesFor(c.Paths.Machine), src); e != nil || again != string(live) {
+		return nil, refused
+	}
+	if Secret([]byte(template), []byte(patched)) {
+		return nil, "it would put what looks like a credential into " + c.Paths.Show(src) + "; edit that template instead"
+	}
+	return []byte(patched), ""
 }
 
 // Build orders takes, then deletions, then writes, protecting edited paths and honoring
@@ -297,39 +327,34 @@ func Build(c *config.Config, written map[string]string, opt Options) (Plan, erro
 			}
 			first := want[bySource[src][0]]
 			var source func([]byte) ([]byte, string)
-			if first.Template {
-				// An edit to a rendered file goes back into the template only if rendering the
-				// result gives exactly the edited file again.
-				source = func(live []byte) ([]byte, string) {
-					refused := "it changes a line that " + c.Paths.Show(src) + " fills in; edit that template instead"
-					raw, e := os.ReadFile(src)
-					if e != nil {
-						return nil, refused
-					}
-					template := strings.ReplaceAll(strings.ReplaceAll(string(raw), "\r\n", "\n"), "\r", "\n")
-					patched, ok := Unrender(template, string(first.Data), string(live))
-					if !ok {
-						return nil, refused
-					}
-					if again, e := config.Render(patched, c.ValuesFor(c.Paths.Machine), src); e != nil || again != string(live) {
-						return nil, refused
-					}
-					return []byte(patched), ""
+			if slices.ContainsFunc(bySource[src], func(q string) bool { return want[q].Template != first.Template }) {
+				source = func([]byte) ([]byte, string) {
+					return nil, c.Paths.Show(src) + " is written both as a template and as it is; edit it in the setup"
 				}
+			} else if first.Template {
+				source = func(live []byte) ([]byte, string) { return Untemplate(c, src, first.Data, live) }
 			}
-			take(&p, c.Paths, src, first.Data, group, bySource[src], held, source)
+			if e := take(&p, c.Paths, src, first.Data, group, bySource[src], held, source); e != nil {
+				return p, e
+			}
 		}
 	}
 	for _, q := range Keys(written) {
 		s := written[q]
 		_, wanted := want[q]
-		skip := false
+		skip, rooted := false, false
 		for _, r := range roots {
 			if setup.Under(q, r.Path) {
 				rel, _ := filepath.Rel(r.Path, q)
-				skip = setup.Excluded(rel, r.Exclude)
+				skip, rooted = setup.Excluded(rel, r.Exclude), true
 				break
 			}
+		}
+		// A file from home/ or agents/ has no folder mapping above it, so a name excluded after
+		// dot wrote it is matched against its path under the home folder.
+		if !rooted && c.Version >= 2 && setup.Under(q, c.Paths.Home) {
+			rel, _ := filepath.Rel(c.Paths.Home, q)
+			skip = setup.Excluded(rel, c.Exclude)
 		}
 		if wanted || s == "dir" || ViaLink(q, tops) || skip {
 			continue
@@ -346,9 +371,10 @@ func Build(c *config.Config, written map[string]string, opt Options) (Plan, erro
 			p.Actions = append(p.Actions, Action{Mark: mark, Path: q, Op: "delete", Live: live, Looked: true})
 		}
 	}
-	// A file in a mirrored folder that dot neither wants nor wrote is an addition when taking,
-	// and otherwise an extra to remove. Additions are gathered by the source file they would
-	// become, since several destinations of one folder can each hold the new file.
+	// A file in a mirrored folder that dot neither wants nor wrote is an addition when taking.
+	// A one-way plan removes it as an extra, unless the setup takes: then it is sync's to take,
+	// and apply leaves it alone. Additions are gathered by the source file they would become,
+	// since several destinations of one folder can each hold the new file.
 	type addition struct {
 		source string
 		files  []found
@@ -370,7 +396,7 @@ func Build(c *config.Config, written map[string]string, opt Options) (Plan, erro
 				if wanted || recorded || setup.Excluded(rel, r.Exclude) {
 					continue
 				}
-				if !r.Mirror {
+				if !r.Mirror || !opt.Take && c.Take {
 					p.Actions = append(p.Actions, Action{Mark: "?", Path: q})
 					continue
 				}
@@ -398,7 +424,7 @@ func Build(c *config.Config, written map[string]string, opt Options) (Plan, erro
 					bySource[source] = a
 					additions = append(additions, a)
 					for _, other := range roots {
-						if other.Source == r.Source {
+						if other.Source == r.Source && !setup.Excluded(rel, other.Exclude) {
 							a.dests = append(a.dests, filepath.Join(other.Path, rel))
 						}
 					}
@@ -412,7 +438,9 @@ func Build(c *config.Config, written map[string]string, opt Options) (Plan, erro
 		}
 	}
 	for _, a := range additions {
-		take(&p, c.Paths, a.source, nil, a.files, a.dests, held, nil)
+		if e := take(&p, c.Paths, a.source, nil, a.files, a.dests, held, nil); e != nil {
+			return p, e
+		}
 	}
 	for _, q := range Keys(p.Wants) {
 		w := p.Wants[q]

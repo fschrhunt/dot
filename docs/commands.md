@@ -50,6 +50,10 @@ An agent's instructions or skill goes to `agents/` and is written to the other i
 a path inside a skill adds the whole skill. `--only` stores an agent's path under `home/`, so it
 stays with that agent. A folder is added file by file. Needs a version 2 setup.
 
+A file that looks like it holds a credential is left out and named. An agent's whole folder,
+such as `~/.claude`, is refused: it holds sessions and credentials, so add the files and skills
+you want from it.
+
 A path outside your home folder is an error; map it under `[files]`. A path the setup already
 holds is left as it is, and status shows how the two differ.
 
@@ -62,7 +66,8 @@ dot forget ~/.gitconfig
 
 Removes the path from the setup and from dot's record of what it wrote, so the live file stays.
 A shared path is forgotten under all of its names. A path mapped in `dot.toml` is not touched;
-remove its line there.
+remove its line there. One file inside a shared skill is refused, since the skill would take it
+back: forget the skill, or remove the file from the setup.
 
 ## agents
 
@@ -88,6 +93,8 @@ dot apply
 `-n` prints the plan without writing and exits 0.
 After writing, apply runs the [`run`](config.md#run) command of each mapping it changed.
 `--force` allows replacing files edited at the destination. Review the diff first.
+In a setup that takes, apply leaves a new file in a shared folder alone and lists it as
+`? extra`; sync takes it.
 
 ```sh
 dot apply
@@ -111,7 +118,8 @@ dot status
 
 Sync is quiet. It takes live edits, commits, pulls, pushes, then applies; a version 1 setup only
 pulls and applies. Read `.state/last` or `.state/sync.log` for results. See [sync](sync.md).
-`--settled`, which the timer uses, leaves a file modified in the last minute for the next run.
+`--settled`, which the timer uses, leaves a file modified in the last minute for the next run,
+and waits while the setup itself was edited that recently.
 
 ## take <path>
 
@@ -122,7 +130,8 @@ dot take ~/.config/zsh
 
 Copies changed files and new files back to the managed source, whatever sync would have held
 back. Does not delete missing source files or commit; the next sync commits. Excludes still
-apply. Template destinations are refused with a diff.
+apply. An edit to a rendered file goes into its template when it touches only lines the template
+leaves as they are; otherwise take refuses and shows the diff.
 The live path must exist and belong to a mapping.
 
 ## init [remote]

@@ -1,4 +1,5 @@
-// Package sync fast-forwards the setup, optionally pushes local commits, and applies quietly.
+// Package sync brings the setup and the machine in line: it takes and commits live edits when
+// the setup syncs both ways, pulls, optionally pushes, and applies quietly.
 package sync
 
 import (
@@ -198,15 +199,24 @@ func (s session) push() (note string, ok bool, err error) {
 }
 
 // commit records everything changed in the setup as one commit named for the machine and the
-// live paths taken, and reports whether there was anything to record. A machine with no git
-// identity commits as dot.
+// live paths taken, and reports whether there was anything to record. It refuses when a line
+// being added looks like a credential, whatever put it in the setup: that commit is the user's
+// to make. A machine with no git identity commits as dot.
 func (s session) commit(taken []plan.Action) (bool, error) {
 	if r, e := s.git("add", "--all"); e != nil || r.code != 0 {
 		return false, orFail(e, "git add failed: "+lastLine(r.err))
 	}
-	r, e := s.git("diff", "--cached", "--quiet")
-	if e != nil || r.code == 0 {
+	r, e := s.git("diff", "--cached", "--unified=0", "--no-color", "--no-ext-diff")
+	if e != nil || r.out == "" {
 		return false, e
+	}
+	file := ""
+	for _, line := range strings.Split(r.out, "\n") {
+		if name, ok := strings.CutPrefix(line, "+++ b/"); ok {
+			file = name
+		} else if strings.HasPrefix(line, "+") && plan.Secret(nil, []byte(line[1:])) {
+			return false, setup.Fail("refused: "+file+" in "+s.p.Show(s.p.Dot)+" looks like it holds a credential; commit it yourself if it belongs in the setup, or remove it", 1)
+		}
 	}
 	what := "setup edited"
 	if len(taken) > 0 {
@@ -242,8 +252,9 @@ func orFail(e error, text string) error {
 // run performs sync while holding the lock. A failed pull or push is noted and the local setup is
 // still applied, so an offline machine keeps working, but the sync exits 1 so the failure shows.
 // A setup that takes (version 2) syncs both ways: live edits are taken and committed, the remote
-// is rebased under them, the result is pushed, and then the setup is applied. settled holds back
-// files modified in the last minute, for the timer.
+// is rebased under them, the result is pushed, and then the setup is applied. settled, for the
+// timer, holds back live files modified in the last minute and waits while the setup itself was
+// edited that recently.
 func run(p setup.Paths, settled bool) (notes []string, code int, err error) {
 	failed := false
 	if !setup.IsDir(filepath.Join(p.Dot, ".git")) {
@@ -258,14 +269,31 @@ func run(p setup.Paths, settled bool) (notes []string, code int, err error) {
 	}
 	taken := 0
 	if settings.Take {
+		// A rebase left open is the user resolving a conflict, and theirs to finish.
 		if s.rebasing() {
-			if _, e := s.git("rebase", "--abort"); e != nil {
-				return notes, 2, e
+			return notes, 1, setup.Fail("refused: a rebase is in progress in "+p.Show(p.Dot)+" (git rebase --continue once the files are fixed, or git rebase --abort)", 1)
+		}
+		r, e := s.git("status", "--porcelain", "-z", "--untracked-files=all", "--no-renames")
+		if e != nil {
+			return notes, 2, e
+		}
+		edited := strings.FieldsFunc(r.out, func(c rune) bool { return c == 0 })
+		if settled {
+			for _, entry := range edited {
+				name := entry[min(3, len(entry)):]
+				if i, e := os.Lstat(filepath.Join(p.Dot, name)); e == nil && time.Since(i.ModTime()) < settle {
+					return []string{"waiting: " + name + " in the setup was edited in the last minute"}, 0, nil
+				}
 			}
 		}
-		// A setup that does not load yet may be fixed by the pull; its edits wait for the next run.
+		// A setup that does not load is not committed: the pull may fix one that is clean, and
+		// one edited here is still being edited or needs fixing first.
+		c, e := config.Load(p)
+		if e != nil && len(edited) > 0 {
+			return notes, setup.ExitCode(e), e
+		}
 		var took []plan.Action
-		if c, e := config.Load(p); e == nil {
+		if e == nil {
 			o := opt
 			o.TakeOnly = true
 			if took, _, e = apply.Run(c, o); e != nil {

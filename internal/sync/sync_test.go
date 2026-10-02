@@ -2,6 +2,7 @@ package sync_test
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -320,4 +321,139 @@ func TestSyncRefusesAnEditToAFilledLine(t *testing.T) {
 	if last := f.Read(f.Paths.State, "last"); !strings.Contains(last, "not taken: ~/AGENTS.md (it changes a line that ~/.dot/t.md fills in") {
 		t.Fatal(last)
 	}
+}
+
+// TestSyncDoesNotPutACredentialIntoATemplate pins the behavior: an edit that would copy a filled-in credential into the template as text is not taken.
+func TestSyncDoesNotPutACredentialIntoATemplate(t *testing.T) {
+	f := testutil.New(t)
+	f.Remote("version = 2\n[values]\ntoken = \"ghp_0123456789abcdefghijklmnopqrstuvwxyz\"\n[templates]\n\"t\" = \"~/t\"\n", map[string]string{"t": "Rules.\nkey {{token}}\n"})
+	testutil.OK(t, f.Sync())
+	f.Write(f.Paths.Home, map[string]string{"t": "key ghp_0123456789abcdefghijklmnopqrstuvwxyz\nRules.\nkey ghp_0123456789abcdefghijklmnopqrstuvwxyz\n"})
+	testutil.Equal(t, f.Sync().Code, 1)
+	testutil.Equal(t, f.Read(f.Paths.Dot, "t"), "Rules.\nkey {{token}}\n")
+}
+
+// TestSyncRefusesASourceWrittenBothRenderedAndPlain pins the behavior: an edit to the rendered copy of a source that is also copied as it is stays out of the setup, so the placeholders survive.
+func TestSyncRefusesASourceWrittenBothRenderedAndPlain(t *testing.T) {
+	f := testutil.New(t)
+	f.Remote("version = 2\n[files]\nt = \"~/a\"\n[templates]\nt = \"~/z\"\n", map[string]string{"t": "Machine {{machine}}\n"})
+	testutil.OK(t, f.Sync())
+	f.Write(f.Paths.Home, map[string]string{"z": "Machine laptop\nMore.\n"})
+	testutil.Equal(t, f.Sync().Code, 1)
+	testutil.Equal(t, f.Read(f.Paths.Dot, "t"), "Machine {{machine}}\n")
+}
+
+// TestSyncDoesNotCommitACredentialPutInTheSetup pins the behavior: a credential that reached the setup by any road is not committed or pushed by sync.
+func TestSyncDoesNotCommitACredentialPutInTheSetup(t *testing.T) {
+	f := testutil.New(t)
+	bare := twoWay(t, f, "a = \"~/a\"\n", map[string]string{"a": "1\n"})
+	f.Write(f.Paths.Dot, map[string]string{"notes": "token = ghp_0123456789abcdefghijklmnopqrstuvwxyz\n"})
+	testutil.Equal(t, f.Sync().Code, 1)
+	testutil.Equal(t, strings.TrimSpace(f.Git(bare, "log", "-1", "--format=%s"))+strings.TrimSpace(f.Git(f.Paths.Dot, "log", "-1", "--format=%s")), "setupsetup")
+	if last := f.Read(f.Paths.State, "last"); !strings.Contains(last, "refused: notes in ~/.dot looks like it holds a credential") {
+		t.Fatal(last)
+	}
+}
+
+// TestSyncDoesNotCommitASetupThatDoesNotLoad pins the behavior: a setup edited into a state that does not load is not committed, so a half-finished edit never reaches the other machines.
+func TestSyncDoesNotCommitASetupThatDoesNotLoad(t *testing.T) {
+	f := testutil.New(t)
+	twoWay(t, f, "a = \"~/a\"\n", map[string]string{"a": "1\n"})
+	f.Write(f.Paths.Dot, map[string]string{"dot.toml": "version = 2\n[files]\na = \"~/a\"\nb = \"~/b\"\n"})
+	testutil.Equal(t, f.Sync().Code, 2)
+	testutil.Equal(t, strings.TrimSpace(f.Git(f.Paths.Dot, "log", "-1", "--format=%s")), "setup")
+}
+
+// TestSettledSyncWaitsWhileTheSetupIsBeingEdited pins the behavior: the timer's sync does nothing while a file in the setup was edited in the last minute.
+func TestSettledSyncWaitsWhileTheSetupIsBeingEdited(t *testing.T) {
+	f := testutil.New(t)
+	twoWay(t, f, "a = \"~/a\"\n", map[string]string{"a": "1\n"})
+	f.Write(f.Paths.Dot, map[string]string{"a": "2\n"})
+	code, e := dotsync.Run(f.Paths, true)
+	if e != nil || code != 0 {
+		t.Fatal(code, e)
+	}
+	testutil.Equal(t, f.Read(f.Paths.Home, "a")+strings.TrimSpace(f.Git(f.Paths.Dot, "log", "-1", "--format=%s")), "1\nsetup")
+}
+
+// conflicted leaves the setup with a commit here and one on the remote that change the same line of a, and the conflict recorded.
+func conflicted(t *testing.T, f *testutil.Fixture) {
+	t.Helper()
+	bare := twoWay(t, f, "a = \"~/a\"\n", map[string]string{"a": "1\n"})
+	other := filepath.Join(f.Temp, "other")
+	f.Git(f.Temp, "clone", "-q", bare, other)
+	f.Commit(other, map[string]string{"a": "theirs\n"}, "desktop: ~/a")
+	f.Git(other, "push", "-q")
+	f.Write(f.Paths.Home, map[string]string{"a": "mine\n"})
+	testutil.Equal(t, f.Sync().Code, 1)
+}
+
+// TestSyncLeavesAnOpenRebaseAlone pins the behavior: while the user is resolving a conflict in the setup, sync refuses and does not undo their rebase.
+func TestSyncLeavesAnOpenRebaseAlone(t *testing.T) {
+	f := testutil.New(t)
+	conflicted(t, f)
+	cmd := exec.Command("git", "-C", f.Paths.Dot, "pull", "--rebase", "--quiet")
+	if out, e := cmd.CombinedOutput(); e == nil {
+		t.Fatalf("the rebase did not stop: %s", out)
+	}
+	testutil.Equal(t, f.Sync().Code, 1)
+	if _, e := os.Stat(filepath.Join(f.Paths.Dot, ".git/rebase-merge")); e != nil {
+		t.Fatal("sync undid the rebase")
+	}
+	if last := f.Read(f.Paths.State, "last"); !strings.Contains(last, "refused: a rebase is in progress") {
+		t.Fatal(last)
+	}
+}
+
+// TestSyncClearsTheConflictOnceAPullSucceeds pins the behavior: the recorded conflict goes away with the first pull that works.
+func TestSyncClearsTheConflictOnceAPullSucceeds(t *testing.T) {
+	f := testutil.New(t)
+	conflicted(t, f)
+	f.Git(f.Paths.Dot, "reset", "-q", "--hard", "@{u}")
+	f.Sync()
+	if _, e := os.Stat(filepath.Join(f.Paths.State, "conflict")); !os.IsNotExist(e) {
+		t.Fatal("the conflict is still recorded")
+	}
+}
+
+// TestOneWayMachineDoesNotTake pins the behavior: with take = false a version 2 setup is applied one way, and a live edit is refused, not taken.
+func TestOneWayMachineDoesNotTake(t *testing.T) {
+	f := testutil.New(t)
+	twoWay(t, f, "a = \"~/a\"\n[sync]\ntake = false\n", map[string]string{"a": "1\n"})
+	f.Write(f.Paths.Home, map[string]string{"a": "2\n"})
+	testutil.Equal(t, f.Sync().Code, 1)
+	testutil.Equal(t, f.Read(f.Paths.Home, "a")+f.Read(f.Paths.Dot, "a"), "2\n1\n")
+}
+
+// TestSyncDoesNotTakeAFileItNeverWrote pins the behavior: a file that was already there and differs from the setup is reported, not taken and not replaced.
+func TestSyncDoesNotTakeAFileItNeverWrote(t *testing.T) {
+	f := testutil.New(t)
+	f.Remote("version = 2\n[files]\na = \"~/a\"\n", map[string]string{"a": "1\n"})
+	f.Write(f.Paths.Home, map[string]string{"a": "mine\n"})
+	testutil.Equal(t, f.Sync().Code, 1)
+	testutil.Equal(t, f.Read(f.Paths.Home, "a")+f.Read(f.Paths.Dot, "a"), "mine\n1\n")
+}
+
+// TestApplyLeavesANewFileInASharedFolderForSync pins the behavior: in a setup that takes, dot apply does not remove a file created in a mirrored folder; sync takes it.
+func TestApplyLeavesANewFileInASharedFolderForSync(t *testing.T) {
+	f := testutil.New(t)
+	twoWay(t, f, "skill = [\"~/.claude/skill\", \"~/.codex/skill\"]\n", map[string]string{"skill/SKILL.md": "1\n"})
+	f.Write(f.Paths.Home, map[string]string{".codex/skill/more.md": "new\n"})
+	testutil.OK(t, f.Apply(false))
+	testutil.Equal(t, f.Read(f.Paths.Home, ".codex/skill/more.md"), "new\n")
+}
+
+// TestSyncSharesANewFileInASkillWithEveryAgent pins the behavior: a file created in one agent's copy of a shared skill is taken into agents/ and written to the other agents.
+func TestSyncSharesANewFileInASkillWithEveryAgent(t *testing.T) {
+	f := testutil.New(t)
+	for _, agent := range []string{".claude", ".codex"} {
+		if e := os.MkdirAll(filepath.Join(f.Paths.Home, agent), 0755); e != nil {
+			t.Fatal(e)
+		}
+	}
+	f.Remote("version = 2\n", map[string]string{"agents/skills/review/SKILL.md": "review\n"})
+	testutil.OK(t, f.Sync())
+	f.Write(f.Paths.Home, map[string]string{".codex/skills/review/notes.md": "new\n"})
+	testutil.OK(t, f.Sync())
+	testutil.Equal(t, f.Read(f.Paths.Dot, "agents/skills/review/notes.md")+f.Read(f.Paths.Home, ".claude/skills/review/notes.md"), "new\nnew\n")
 }

@@ -36,6 +36,8 @@
   change the shared plan in `internal/plan`, never one command alone.
 - A version 1 setup must behave exactly as it did: two-way sync and the folders are version 2 only.
 - Sync never merges, never takes a deletion, and never replaces a path it did not just look at.
+  It never commits a line shaped like a credential or a setup that does not load, and never
+  removes a file dot did not write.
 - Preserve Python behavior and the .state formats for existing setups, including known quirks.
 - Errors are one line per problem, prefixed `dot:`, and name what to fix.
 - One focused test per protected behavior, next to the package it pins. No smoke tests.

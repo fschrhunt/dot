@@ -57,15 +57,18 @@ func save(paths setup.Paths, written map[string]string) error {
 	return setup.Write(filepath.Join(paths.State, "written.json"), setup.Want{Kind: "file", Data: []byte(ascii.String()), Mode: 0644})
 }
 
-// Disown removes live paths from the record of what dot wrote, along with any folder record
-// above them that no recorded path still sits in, so a later apply leaves those paths alone.
+// Disown removes live paths, and every recorded path inside one of them, from the record of
+// what dot wrote, along with any folder record above them that no recorded path still sits in,
+// so a later apply leaves those paths alone.
 func Disown(paths setup.Paths, live []string) error {
 	written, e := ReadWritten(paths)
 	if e != nil {
 		return e
 	}
-	for _, q := range live {
-		delete(written, q)
+	for q := range written {
+		if slices.ContainsFunc(live, func(gone string) bool { return q == gone || setup.Under(q, gone) }) {
+			delete(written, q)
+		}
 	}
 	for q, s := range written {
 		if s != "dir" {
@@ -127,7 +130,8 @@ type Options struct {
 }
 
 // Run executes the plan, skips paths related to refused edits, and always saves state. A path
-// that changed between the plan and its turn is refused, not replaced. Afterward it runs each
+// that changed between the plan and its turn is refused, not replaced; so is a take whose live
+// file or source changed. Afterward it runs each
 // mapping's command whose destinations changed, once and in configuration order: one that ran
 // is appended to done, and one that failed to refused.
 func Run(c *config.Config, opt Options) (done, refused []plan.Action, err error) {
@@ -168,6 +172,19 @@ func Run(c *config.Config, opt Options) (done, refused []plan.Action, err error)
 		}
 		if a.Op == "take" {
 			if a.Mark == "!" {
+				refused = append(refused, a)
+				continue
+			}
+			live, e := setup.LiveSig(a.Path)
+			if e != nil {
+				return done, refused, e
+			}
+			source, e := setup.LiveSig(a.Want.Src)
+			if e != nil {
+				return done, refused, e
+			}
+			if live != a.Live || source != a.Base {
+				a.Mark, a.Note = "!", "it changed while dot was working; run dot sync again"
 				refused = append(refused, a)
 			} else if e := setup.Write(a.Want.Src, a.Want); e != nil {
 				return done, refused, setup.Fail("cannot take " + c.Paths.Show(a.Path) + ": " + setup.Reason(e))

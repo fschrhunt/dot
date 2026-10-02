@@ -19,13 +19,24 @@
   - `dot status` prints what `dot sync` would do, with `<` for an edit it would take.
   - `[sync] take = false` keeps a machine one-way. `push` defaults to true.
   - A conflicting rebase is undone and nothing is pushed; `dot status` leads with it until a pull
-    succeeds.
+    succeeds. Sync refuses to run while you are resolving it and leaves your rebase alone.
+  - Sync does not commit a line that looks like a credential, however it reached the setup, or a
+    setup that no longer loads. The timer waits while a file in the setup was edited in the last
+    minute.
+  - `dot apply` leaves a new file in a shared folder for sync to take, and lists it as `? extra`.
+  - `dot add` leaves out a file that looks like it holds a credential and refuses an agent's
+    whole folder. `dot forget` refuses one file inside a shared skill.
+  - Two agents whose folders are the same real path, one linked to the other, get one copy.
+  - Excluding a name under `home/` or `agents/` that dot already wrote leaves the live file.
+- `dot take` carries an edit to a rendered file into its template when it touches only lines the
+  template leaves as they are. It used to refuse every template destination.
 - Version 1 setups behave as before.
 - The timer runs `dot sync --settled`, which leaves a file modified in the last minute for its
   next run.
 - Sync refuses to replace a file that changed while it was running.
 - Faster with exclude patterns: each is compiled once. Status on 2,000 files with six patterns
   went from 183 ms to 54 ms.
+- Faster with many mappings: destinations are checked against each other in one pass.
 - `dot timer` is the new name for `dot install`, which still works.
 - The macOS agent is now labeled `com.fschrhunt.dot`. `dot timer` removes an agent installed
   under the earlier label `dot`.

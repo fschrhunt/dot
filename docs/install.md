@@ -17,7 +17,7 @@ dot version
 ```
 
 Use the actual downloaded filename. Add the PATH line to your shell profile.
-Install git if `git --version` fails. dot needs no Python or Go at runtime.
+Install git if `git --version` fails. dot needs nothing else at runtime.
 
 ## go install
 

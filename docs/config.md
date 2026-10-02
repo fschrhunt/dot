@@ -8,9 +8,9 @@ table per name.
 
 ```text
 ~/.dot/
-  home/.gitconfig              written to ~/.gitconfig
+  home/.zshrc                  written to ~/.zshrc
   home/.config/zsh/aliases.zsh written to ~/.config/zsh/aliases.zsh
-  home/.note.tmpl              a template, written to ~/.note
+  home/.gitconfig.tmpl         a template, written to ~/.gitconfig
   agents/instructions.md       written under each agent's name; see agents.md
   agents/skills/review/        written to each agent's skills folder
 ```
@@ -135,14 +135,14 @@ home = "~/.myagent"
 instructions = "RULES.md"
 
 [only]
-"agents/skills/browser" = { agents = ["claude", "codex"] }
-"home/.config/hypr" = { machines = ["desktop"] }
+"agents/skills/review" = { agents = ["claude", "codex"] }
+"home/.config/work" = { machines = ["work"] }
 ```
 
 `[agent.<name>]` adds an agent or changes a built-in one; see [agents](agents.md). `[only]`
 limits a path in the setup, and everything under it, to some agents or some machines.
 The path must be under `home/` or `agents/`, and no deeper than one shared unit such as
-`agents/skills/browser`. `agents` applies only under `agents/`. An agent name dot does not know
+`agents/skills/review`. `agents` applies only under `agents/`. An agent name dot does not know
 is an error. A path takes its agents from the nearest rule that names agents and its machines
 from the nearest that names machines, so a rule on one skill keeps the machines a rule on
 `agents/skills` set. A kind's path, such as `instructions = "RULES.md"`, must stay inside the
@@ -152,7 +152,7 @@ agent's folder.
 
 ```toml
 [values]
-workspace_root = "~/Code"
+email = "me@example.com"
 port = 8080
 ratio = 1.5
 ```
@@ -164,12 +164,12 @@ Values are not recursively rendered.
 
 ```toml
 [values]
-workspace_root = "~/Code"
-[machine.server]
-workspace_root = "~/src"
+email = "me@example.com"
+[machine.work]
+email = "me@work.example"
 ```
 
-The `server` machine overrides the base value. Other machines keep `~/Code`.
+The `work` machine overrides the base value. Other machines keep `me@example.com`.
 The name is `hostname -s`, or `DOT_MACHINE`. An empty machine table is allowed.
 All known machines are validated before commands use the config.
 
@@ -188,13 +188,13 @@ explicit mapping.
 `instructions.md` might contain:
 
 ```text
-Machine: {{machine}}
-Code: {{workspace_root}}
+You are on {{machine}}.
+Sign commits as {{email}}.
 ```
 
 Templates must be text files. Every `{{name}}` must be defined on every applicable machine.
 A template accepts the same string, array and table forms as a file mapping.
-A source symlink is validated as a template but copied as a symlink, as in the Python version.
+A source symlink is validated as a template but copied as a symlink.
 Sync and `dot take` carry an edit to the rendered file back into the template when it touches
 only lines the template leaves as they are.
 
@@ -296,13 +296,17 @@ The listed names are validated even if they have no `[machine.X]` table.
 ## {{machine}} and other placeholders
 
 ```toml
-[machine.server]
+[values]
+vscode = "~/.config/Code/User"
+[machine.macbook]
+vscode = "~/Library/Application Support/Code/User"
 [files]
-"config.{{machine}}.json" = "~/.config/app/config.json"
-"guide.md" = "{{workspace_root}}/guide.md"
+"ssh/config.{{machine}}" = "~/.ssh/config"
+"vscode/settings.json" = "{{vscode}}/settings.json"
 ```
 
-With the values above, provide both `config.server.json` and a source for the current machine.
+The first mapping reads a different source on each machine, so provide `ssh/config.macbook` and
+one for every other machine. The second writes one source to the folder each machine keeps it in.
 `machine` is always defined and overrides a user value with that name.
 Whitespace inside braces is allowed: `{{ machine }}`.
 Placeholders work in sources, destinations and template text.

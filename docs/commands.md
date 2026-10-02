@@ -179,7 +179,7 @@ Creates a version 2 setup with a commented `dot.toml` and initializes git. Refus
 setup folder.
 
 ```sh
-dot init server:dot.git
+dot init git@github.com:you/dotfiles.git
 ```
 
 Clones that remote instead. Ensures `.state/` is ignored locally.
@@ -208,8 +208,8 @@ dot help
 # ... usage ...
 # Setup ~/.dot on machine laptop.
 # Values ({{name}} in templates, sources and destinations):
-#   workspace_root = ~/Code
-#     set per machine (server: ~/src; base: ~/Code): differs on purpose; do not unify
+#   email = me@example.com
+#     set per machine (work: me@work.example; base: me@example.com): differs on purpose; do not unify
 # Sources (edit these in the setup, not the destinations):
 #   instructions.md -> ~/.claude/CLAUDE.md, ~/.codex/AGENTS.md  (template)
 ```

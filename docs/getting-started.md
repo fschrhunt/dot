@@ -68,16 +68,16 @@ dot timer
 
 ## A second machine
 
-Give the setup a private remote, then clone it on the other machine:
+Give the setup a private remote, such as a private repository on GitHub, then clone it on the
+other machine:
 
 ```sh
-ssh server git init --bare dot.git
-git -C ~/.dot remote add origin server:dot.git
+git -C ~/.dot remote add origin git@github.com:you/dotfiles.git
 git -C ~/.dot push -u origin HEAD
 ```
 
 ```sh
-dot init server:dot.git
+dot init git@github.com:you/dotfiles.git
 dot sync
 dot timer
 ```

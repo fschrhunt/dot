@@ -94,22 +94,24 @@ cat ~/.dot/.state/last
 [`run`](config.md#run) commands that ran; each appears only when it is not zero.
 
 The state folder also holds `written.json`, hashes of the files dot last wrote and `dir`
-for managed folder roots. Existing state carries over from the Python version.
+for managed folder roots.
 Do not commit `.state/`. Do not delete written.json to resolve a live edit.
 
 ## Set an upstream
 
 ```sh
 cd ~/.dot
-git remote add origin server:dot.git
+git remote add origin git@github.com:you/dotfiles.git
 git push -u origin HEAD
 dot sync
 ```
 
-Any private git remote works. To create a bare one:
+Any private git remote works: a private repository on a git host, or a bare one on a machine
+you reach over ssh:
 
 ```sh
-ssh server git init --bare dot.git
+ssh you@host git init --bare dotfiles.git
+git remote add origin you@host:dotfiles.git
 ```
 
 ## Uncommitted changes
@@ -215,5 +217,4 @@ It runs at load and every 900 seconds,
 or the interval in [`[sync] every`](config.md#syncevery), while the user session is active.
 
 Both timers keep the installing shell's PATH and any explicit DOT_HOME and DOT_MACHINE.
-They execute the Go binary's absolute path. Reinstall after moving or replacing an old
-Python installation. No Python is needed for the timer.
+They run the binary at its absolute path, so run `dot timer` again after moving it.

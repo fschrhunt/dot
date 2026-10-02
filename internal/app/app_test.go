@@ -488,3 +488,13 @@ func TestForgetSaysNothingWhenOnePathFails(t *testing.T) {
 	testutil.Equal(t, code, 2)
 	testutil.Equal(t, out.String()+f.Read(f.Paths.Dot, "home/.zshrc"), "1\n")
 }
+
+// TestHelpShowsHomeAsATilde pins the behavior: dot help lists a file under home/ with its destination written from ~, not as this machine's full path.
+func TestHelpShowsHomeAsATilde(t *testing.T) {
+	f := testutil.New(t)
+	f.Config("version = 2\n", map[string]string{"home/.zshrc": "x\n"})
+	got := run(t, func(out *bytes.Buffer) (int, error) { return app.Help(f.Paths, out) })
+	if !strings.Contains(got, "  home/.zshrc -> ~/.zshrc\n") {
+		t.Fatal(got)
+	}
+}

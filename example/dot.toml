@@ -11,10 +11,10 @@ every = "15m"                        # how often the timer syncs; run dot timer 
 # take = false                       # one-way: never take edits made on a machine
 
 [values]                             # {{name}} in files whose names end in .tmpl
-# workspace_root = "~/Code"
+# email = "me@example.com"
 
-# [machine.server]                   # values that differ on the machine named server
-# workspace_root = "~/src"
+# [machine.work]                     # values that differ on the machine named work
+# email = "me@work.example"
 
 # [agent.myagent]                    # an agent dot does not know; dot agents lists the ones it does
 # home = "~/.myagent"
@@ -22,8 +22,8 @@ every = "15m"                        # how often the timer syncs; run dot timer 
 # skills = "skills"
 
 # [only]                             # limit a path to some agents or some machines
-# "agents/skills/browser" = { agents = ["claude", "codex"] }
-# "home/.config/hypr" = { machines = ["desktop"] }
+# "agents/skills/review" = { agents = ["claude", "codex"] }
+# "home/.config/work" = { machines = ["work"] }
 
 # [files]                            # anything the folders cannot say: any source to any path
-# "code/README.md" = "{{workspace_root}}/README.md"
+# "ssh/config.{{machine}}" = "~/.ssh/config"      # a different source on each machine

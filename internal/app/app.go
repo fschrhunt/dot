@@ -399,7 +399,11 @@ func Help(paths setup.Paths, out io.Writer) (int, error) {
 		if len(notes) > 0 {
 			suffix = "  (" + strings.Join(notes, "; ") + ")"
 		}
-		fmt.Fprintf(out, "  %s -> %s%s\n", mp.Src, strings.Join(mp.To, ", "), suffix)
+		to := make([]string, len(mp.To))
+		for i, dest := range mp.To {
+			to[i] = c.Paths.Show(dest)
+		}
+		fmt.Fprintf(out, "  %s -> %s%s\n", mp.Src, strings.Join(to, ", "), suffix)
 	}
 	return 0, nil
 }

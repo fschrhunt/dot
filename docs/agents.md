@@ -60,7 +60,7 @@ is shared with every agent that defines `rules`.
 
 ```toml
 [only]
-"agents/skills/browser" = { agents = ["claude", "codex"] }
+"agents/skills/review" = { agents = ["claude", "codex"] }
 ```
 
 The skill reaches those two agents and no others. To give one agent its own version of a shared

@@ -28,8 +28,11 @@
 - `internal/testutil/`: temporary homes, handler capture and local git fixtures for tests.
 - `example.go` and `example/`: the embedded starter setup, a commented version 2 `dot.toml`.
 - `x`, `scripts/` and `.githooks/`: the one entry point for checks (`./x check` runs what CI
-  runs), the guard script pinning AGENTS.md's promises, the end-to-end smoke test, and the
+  runs; `./x audit` checks dependencies against the vulnerability database), the guard script
+  pinning AGENTS.md's promises, the end-to-end smoke test, the release scripts, and the
   pre-commit hook.
+- `install.sh` and `dot.rb`: the checksum-verified installer and the Homebrew formula the
+  release workflow regenerates; dot's repository is its own tap.
 - `docs/`: user help with worked examples.
 - `assets/`: the wordmark and logo SVGs in black and white; see `assets/README.md`.
 

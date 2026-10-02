@@ -61,6 +61,7 @@ done
 
 # 10. CODEOWNERS must only name paths that still exist — otherwise ownership silently
 #    stops watching the area it claimed after a rename.
+# shellcheck disable=SC2013 # fields are space-separated by format; the first is the path
 for pattern in $(awk '!/^#/ && NF { print $1 }' .github/CODEOWNERS); do
     case "$pattern" in
         \*|*\**|*\?*|*\[*) continue ;;

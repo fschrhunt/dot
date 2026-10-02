@@ -94,7 +94,9 @@ jobs:
         run: |
           gh release download "$TAG" -R "$GITHUB_REPOSITORY" -p checksums.txt -O "$RUNNER_TEMP/checksums.txt"
           scripts/formula.sh "$TAG" "$RUNNER_TEMP/checksums.txt" > dot.rb
-          git diff --quiet && exit 0
+          # Stage first: a brand-new formula is untracked, which git diff never shows.
+          git add dot.rb
+          git diff --cached --quiet && exit 0
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -qam "brew: dot $TAG"

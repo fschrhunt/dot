@@ -473,6 +473,8 @@ func (c *Config) validate() error {
 	}
 	slices.Sort(machines)
 	var problems []string
+	// Many destinations share a folder, and each machine resolves the same ones again.
+	reals := map[string]string{}
 	for _, m := range machines {
 		maps, e := c.Resolve(m)
 		if e != nil {
@@ -501,7 +503,11 @@ func (c *Config) validate() error {
 				}
 			}
 			for _, d := range r.Dests {
-				real := filepath.Join(setup.Real(filepath.Dir(d)), filepath.Base(d))
+				dir := filepath.Dir(d)
+				if _, ok := reals[dir]; !ok {
+					reals[dir] = setup.Real(dir)
+				}
+				real := filepath.Join(reals[dir], filepath.Base(d))
 				if d == "/" {
 					real = "/"
 				}

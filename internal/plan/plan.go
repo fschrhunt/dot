@@ -300,7 +300,8 @@ func Build(c *config.Config, written map[string]string, opt Options) (Plan, erro
 		}
 	}
 	// held are live paths this plan leaves alone: an edit or addition that is not taken yet.
-	held := map[string]bool{}
+	// read keeps the signature of each live file the takes already read, for the writes below.
+	held, read := map[string]bool{}, map[string]string{}
 	if opt.Take {
 		// An edit: the live file differs from what dot wrote, and the source still is what dot wrote.
 		bySource := map[string][]string{}
@@ -317,6 +318,9 @@ func Build(c *config.Config, written map[string]string, opt Options) (Plan, erro
 				f, ok, e := look(q, opt.Settle)
 				if e != nil {
 					return p, e
+				}
+				if ok {
+					read[q] = f.sig
 				}
 				if ok && f.sig != w.Sig {
 					group = append(group, f)
@@ -447,9 +451,9 @@ func Build(c *config.Config, written map[string]string, opt Options) (Plan, erro
 		if held[q] {
 			continue
 		}
-		live := ""
-		looked := !ViaLink(q, tops)
-		if looked {
+		live, known := read[q]
+		looked := known || !ViaLink(q, tops)
+		if looked && !known {
 			live, e = setup.LiveSig(q)
 			if e != nil {
 				return p, e

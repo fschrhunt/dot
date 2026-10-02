@@ -39,7 +39,7 @@ func TestReleaseTagsAndNewerOrdersThem(t *testing.T) {
 // TestUpdateHintsPointAtTheirUpdaters pins the install-method routing: only a direct install
 // updates itself.
 func TestUpdateHintsPointAtTheirUpdaters(t *testing.T) {
-	for method, hint := range map[string]string{"brew": "brew upgrade dot", "go": "go install github.com/fschrhunt/dot/cmd/dot@latest", "direct": "dot update"} {
+	for method, hint := range map[string]string{"brew": "brew upgrade fschrhunt/dot/dot", "go": "go install github.com/fschrhunt/dot/cmd/dot@latest", "direct": "dot update"} {
 		if Hint(method) != hint {
 			t.Fatalf("Hint(%s) = %q", method, Hint(method))
 		}

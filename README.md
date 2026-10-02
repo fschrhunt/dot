@@ -21,7 +21,7 @@ and so is each skill: an edit under any name reaches the rest, on every machine.
 
 ```sh
 curl -fsSL https://fschrhunt.com/dot/install.sh | sh            # macOS and Linux
-brew tap fschrhunt/dot https://github.com/fschrhunt/dot && brew install dot
+brew tap fschrhunt/dot https://github.com/fschrhunt/dot && brew install fschrhunt/dot/dot
 go install github.com/fschrhunt/dot/cmd/dot@latest             # Go 1.26 or newer
 ```
 

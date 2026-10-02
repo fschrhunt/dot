@@ -103,11 +103,12 @@ func Method() string {
 	return "direct"
 }
 
-// Hint is how to update an install that dot doesn't update itself.
+// Hint is how to update an install that dot doesn't update itself. The Homebrew hint is
+// fully qualified: bare `brew upgrade dot` would find an unrelated cask of the same name.
 func Hint(method string) string {
 	switch method {
 	case "brew":
-		return "brew upgrade dot"
+		return "brew upgrade fschrhunt/dot/dot"
 	case "go":
 		return "go install github.com/fschrhunt/dot/cmd/dot@latest"
 	}

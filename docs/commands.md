@@ -213,8 +213,8 @@ dot update --check
 Replaces this binary with the latest release, after checking its archive against the release's
 checksums, the same checks the [installer](install.md#the-installer) makes. `--check` only
 reports whether one is out, exiting 1 while it is. A Homebrew install is pointed at
-`brew upgrade dot`, and a `go install` at installing again; only an installer or archive copy
-updates itself. A development build is updated from source. In a terminal, dot mentions a newer
+`brew upgrade fschrhunt/dot/dot`, and a `go install` at installing again; only an installer or
+archive copy updates itself. A development build is updated from source. In a terminal, dot mentions a newer
 release at most once a day (`DOT_NO_UPDATE_CHECK=1` stops it); it never speaks in a pipe.
 
 ## help / -h / --help

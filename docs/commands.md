@@ -9,13 +9,16 @@ A refused edit or dirty sync exits 1.
 ```sh
 dot status
 # last sync: 2026-10-01 12:00:00 laptop up to date; 0 changed
+# < take        ~/.codex/AGENTS.md
 # - removed     ~/old.conf
-# ~ changed     ~/.gitconfig
+# ~ changed     ~/.claude/CLAUDE.md
 # + new         ~/.config/app.conf
 # ! edited here ~/.zshrc
 # ? extra       ~/.config/app/local.conf
 ```
 
+Status prints what `dot sync` would do. `<` is an edit sync would take into the setup; `!` is a
+file sync will not touch until you choose. `dot apply -n` prints what apply alone would do.
 The last sync line appears only after a sync. `?` means an extra file under a mapping
 with `mirror = false`. A directory creation ends in `/`. `> run` names a mapping's
 [`run`](config.md#run) command that apply would run after these changes.
@@ -32,6 +35,46 @@ dot status ~/.gitconfig
 
 A path limits diffs to that file or folder. Binary changes print `binary files ... differ`.
 A path outside managed destinations is an error.
+
+## add [--only] <path>…
+
+```sh
+dot add ~/.gitconfig ~/.claude/CLAUDE.md
+# added ~/.gitconfig as home/.gitconfig
+# added ~/.claude/CLAUDE.md as agents/instructions.md (shared with every agent that has a place for it)
+# + new         ~/.codex/AGENTS.md
+```
+
+Copies each path into the setup and applies it. A path under your home folder goes to `home/`.
+An agent's instructions or skill goes to `agents/` and is written to the other installed agents;
+a path inside a skill adds the whole skill. `--only` stores an agent's path under `home/`, so it
+stays with that agent. A folder is added file by file. Needs a version 2 setup.
+
+A path outside your home folder is an error; map it under `[files]`. A path the setup already
+holds is left as it is, and status shows how the two differ.
+
+## forget <path>…
+
+```sh
+dot forget ~/.gitconfig
+# forgot ~/.gitconfig; it stays where it is
+```
+
+Removes the path from the setup and from dot's record of what it wrote, so the live file stays.
+A shared path is forgotten under all of its names. A path mapped in `dot.toml` is not touched;
+remove its line there.
+
+## agents
+
+```sh
+dot agents
+# claude     ~/.claude  (installed)
+#   instructions   ~/.claude/CLAUDE.md
+#   skills         ~/.claude/skills
+```
+
+Prints each agent dot knows, whether it is installed here, and where it keeps each kind of
+thing. See [agents](agents.md).
 
 ## apply [-n] [--force]
 
@@ -66,8 +109,9 @@ dot status
 # up to date
 ```
 
-Sync is quiet. It pulls with `--ff-only`, optionally pushes, then applies.
-Read `.state/last` or `.state/sync.log` for results. See [sync](sync.md).
+Sync is quiet. It takes live edits, commits, pulls, pushes, then applies; a version 1 setup only
+pulls and applies. Read `.state/last` or `.state/sync.log` for results. See [sync](sync.md).
+`--settled`, which the timer uses, leaves a file modified in the last minute for the next run.
 
 ## take <path>
 
@@ -76,18 +120,20 @@ dot take ~/.config/zsh
 # took ~/.config/zsh/aliases.zsh -> ~/.dot/zsh/aliases.zsh
 ```
 
-Copies changed files and new files back to the managed source. Does not delete missing source
-files or commit. Excludes still apply. Template destinations are refused with a diff.
+Copies changed files and new files back to the managed source, whatever sync would have held
+back. Does not delete missing source files or commit; the next sync commits. Excludes still
+apply. Template destinations are refused with a diff.
 The live path must exist and belong to a mapping.
 
 ## init [remote]
 
 ```sh
 dot init
-# Created ~/.dot. Next: edit ~/.dot/dot.toml, run dot apply, then dot timer.
+# Created ~/.dot. Next: dot add the files you want managed, then dot sync and dot timer.
 ```
 
-Copies the embedded example and initializes git. Refuses an existing setup folder.
+Creates a version 2 setup with a commented `dot.toml` and initializes git. Refuses an existing
+setup folder.
 
 ```sh
 dot init server:dot.git

@@ -1,15 +1,37 @@
 # Configuration
 
-Edit `~/.dot/dot.toml`. Set `DOT_HOME` for a different setup folder.
-The examples below are separate snippets. Merge them into one table per name.
+The setup's folders are its configuration, and `~/.dot/dot.toml` holds the rest. Set `DOT_HOME`
+for a different setup folder. The examples below are separate snippets. Merge them into one
+table per name.
+
+## The folders
+
+```text
+~/.dot/
+  home/.gitconfig              written to ~/.gitconfig
+  home/.config/zsh/aliases.zsh written to ~/.config/zsh/aliases.zsh
+  home/.note.tmpl              a template, written to ~/.note
+  agents/instructions.md       written under each agent's name; see agents.md
+  agents/skills/review/        written to each agent's skills folder
+```
+
+Each file under `home/` is managed on its own: dot owns that file and nothing else in the
+folder around it. Each child of a folder under `agents/` is a unit, and a file created inside
+one of its copies is taken as part of it. `dot add` and `dot forget` maintain both folders.
+
+`dot.toml` is optional. With no `dot.toml`, a setup that has either folder is a version 2 setup
+with every default.
 
 ## version
 
 ```toml
-version = 1
+version = 2
 ```
 
 Defaults to 1. Must be a whole number. A newer version asks you to update dot.
+
+Version 2 turns on the folders above and two-way sync. A version 1 setup uses only the
+mappings in `dot.toml` and is applied one way; nothing here changes for it.
 
 ## exclude
 
@@ -30,8 +52,22 @@ Use specific names such as `.DS_Store` to avoid that quirk.
 push = true
 ```
 
-Defaults to false. With an upstream, sync pushes local commits when ahead.
-It never creates commits.
+Defaults to true in a version 2 setup and false in a version 1 setup. With an upstream, sync
+pushes local commits when ahead.
+
+## sync.take
+
+```toml
+[sync]
+take = false
+```
+
+Defaults to true in a version 2 setup. `dot sync` then takes edits made to live files into the
+setup; see [sync](sync.md). Set it to false, for every machine or in a
+[`[sync.machine.<name>]`](#syncmachinex) table for one, to make that machine one-way: the setup
+is applied to it, and an edited live file is left alone until you run `dot take`.
+
+`push` also defaults to true in a version 2 setup.
 
 ## sync.every
 
@@ -88,6 +124,21 @@ The `server` machine syncs every minute and pushes. Other machines keep `[sync]`
 A machine's table takes the same keys as `[sync]`. Every machine's table is checked on
 every machine.
 
+## agent.X and only
+
+```toml
+[agent.myagent]
+home = "~/.myagent"
+instructions = "RULES.md"
+
+[only]
+"agents/skills/browser" = { agents = ["claude", "codex"] }
+"home/.config/hypr" = { machines = ["desktop"] }
+```
+
+`[agent.<name>]` adds an agent or changes a built-in one; see [agents](agents.md). `[only]`
+limits a path in the setup, and everything under it, to some agents or some machines.
+
 ## values
 
 ```toml
@@ -115,6 +166,9 @@ All known machines are validated before commands use the config.
 
 ## templates
 
+A name ending in `.tmpl` under `home/` or `agents/` is a template without any line here. This
+table is for a template that needs an explicit mapping.
+
 ```toml
 [templates]
 "instructions.md" = ["~/.claude/CLAUDE.md", "~/.codex/AGENTS.md"]
@@ -133,6 +187,10 @@ A source symlink is validated as a template but copied as a symlink, as in the P
 `dot take` refuses template destinations and shows a diff instead.
 
 ## files: one destination
+
+`home/` covers most files without any line here. Use `[files]` for what a folder cannot say: a
+destination outside your home folder, one that depends on a value, or a folder that dot should
+own whole.
 
 ```toml
 [files]

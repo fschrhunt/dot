@@ -10,9 +10,12 @@
 
 ---
 
-Keep your dotfiles, agent instructions, skills and small tools in a private git folder,
-`~/.dot`. dot copies them wherever `dot.toml` says. A timer pulls and applies your commits
-on each machine. Templates supply machine-specific values. Edited live files stay protected.
+Edit your dotfiles where they live. dot takes each edit into a private git repository, `~/.dot`,
+and carries it to your other machines.
+
+It treats your coding agents as one audience. Claude Code calls its instructions `CLAUDE.md`;
+Codex, opencode and others call theirs `AGENTS.md`. To dot they are one file with several names,
+and so is each skill: an edit under any name reaches the rest, on every machine.
 
 ## Install
 
@@ -27,13 +30,15 @@ go install github.com/fschrhunt/dot/cmd/dot@latest
 
 ```sh
 dot init
-$EDITOR ~/.dot/dot.toml
-dot status
-dot apply
-dot timer
+dot add ~/.gitconfig ~/.config/zsh    # stored under home/, which mirrors your home folder
+dot add ~/.claude/CLAUDE.md           # stored under agents/, and written as AGENTS.md for the rest
+dot sync                              # take edits, commit, pull, push, apply
+dot timer                             # and keep doing it, every 15 minutes
 ```
 
-Commit your setup changes before syncing. See [the docs](docs/README.md) for installation,
+`dot status` shows what a sync would do before it does it. dot never merges and never syncs a
+deletion: a file changed on two sides is reported and left alone until you choose.
+See [the docs](docs/README.md) for installation,
 configuration, commands and syncing a second machine.
 
 MIT licensed.

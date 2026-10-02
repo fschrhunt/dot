@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+- Version 2 setups (`version = 2` in `dot.toml`, and every setup `dot init` creates):
+  - Two-way sync. `dot sync` takes an edit made to a live file into the setup, commits it as
+    `<machine>: <paths>`, pulls with rebase, pushes, and applies. It never merges and never takes
+    a deletion; a file changed on both sides, an edit that adds something shaped like a
+    credential, and an edit to a line a template fills in are left alone and reported.
+  - One file, several names. An edit under one name is written to the others, and an edit to a
+    rendered file goes back into its template.
+  - The setup's folders are its configuration: `home/` mirrors the home folder and `agents/` is
+    shared with every installed agent, so `agents/instructions.md` is written as `CLAUDE.md` for
+    Claude Code and `AGENTS.md` for Codex, opencode and pi. `dot.toml` is optional.
+  - `[agent.<name>]` adds an agent or changes a built-in one, and `[only]` limits a path to some
+    agents or machines. A name ending in `.tmpl` is a template.
+  - `dot add` and `dot forget` start and stop managing a path. `dot agents` prints the agents,
+    which are installed, and where each keeps things.
+  - `dot status` prints what `dot sync` would do, with `<` for an edit it would take.
+  - `[sync] take = false` keeps a machine one-way. `push` defaults to true.
+  - A conflicting rebase is undone and nothing is pushed; `dot status` leads with it until a pull
+    succeeds.
+- Version 1 setups behave as before.
+- The timer runs `dot sync --settled`, which leaves a file modified in the last minute for its
+  next run.
+- Sync refuses to replace a file that changed while it was running.
+- Faster with exclude patterns: each is compiled once. Status on 2,000 files with six patterns
+  went from 183 ms to 54 ms.
 - `dot timer` is the new name for `dot install`, which still works.
 - The macOS agent is now labeled `com.fschrhunt.dot`. `dot timer` removes an agent installed
   under the earlier label `dot`.

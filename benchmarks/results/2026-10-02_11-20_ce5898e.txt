@@ -1,0 +1,8 @@
+date:            2026-10-02_11-20
+version:         dev (ce5898e)
+machine:         x86_64 · Linux 7.0.0-34-generic
+binary size:     11412358 bytes
+cold start:      7 ms   (dot --version, median of 21)
+status:          44 ms   (dot status on 2000 managed files, median of 5)
+apply:           55 ms   (dot apply with nothing to do, median of 5)
+sync:            115 ms   (dot sync with no upstream, median of 5)

@@ -27,6 +27,7 @@ jobs:
       - run: ./scripts/smoke.sh
       # The installer people run, against the latest release.
       - run: sh install.sh --dir "$RUNNER_TEMP/dot" && "$RUNNER_TEMP/dot/dot" --version
+      - run: ./x bench
   macOS:
     runs-on: macos-latest
     steps:

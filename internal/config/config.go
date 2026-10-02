@@ -2,6 +2,7 @@
 package config
 
 import (
+	"cmp"
 	"fmt"
 	"maps"
 	"math"
@@ -477,6 +478,7 @@ func (c *Config) validate() error {
 		}
 		type owner struct{ real, label, dest string }
 		var owners []owner
+		at := map[string]int{}
 		for _, r := range maps {
 			where := "dot.toml: " + r.Label + " on " + m
 			if !setup.Exists(r.Source) {
@@ -500,28 +502,31 @@ func (c *Config) validate() error {
 				if d == "/" {
 					real = "/"
 				}
-				idx := -1
-				for i, o := range owners {
-					if o.real == real {
-						problems = append(problems, where+": "+c.Paths.Show(d)+" is also written by "+o.label)
-						idx = i
-						break
-					}
-				}
 				o := owner{real, r.Label, d}
-				if idx >= 0 {
-					owners[idx] = o
+				if i, taken := at[real]; taken {
+					problems = append(problems, where+": "+c.Paths.Show(d)+" is also written by "+owners[i].label)
+					owners[i] = o
 				} else {
+					at[real] = len(owners)
 					owners = append(owners, o)
 				}
 			}
 		}
-		for _, a := range owners {
-			for _, b := range owners {
-				if setup.Under(b.real, a.real) {
-					problems = append(problems, "dot.toml: "+b.label+" on "+m+": "+c.Paths.Show(b.dest)+" is inside "+c.Paths.Show(a.dest)+" from "+a.label)
+		// One destination inside another: each looks up its own parents, so a setup of
+		// thousands of files is not compared pair by pair.
+		var nested [][2]int
+		for i, b := range owners {
+			for d := b.real; d != "/"; {
+				d = filepath.Dir(d)
+				if j, ok := at[d]; ok {
+					nested = append(nested, [2]int{j, i})
 				}
 			}
+		}
+		slices.SortFunc(nested, func(x, y [2]int) int { return cmp.Or(x[0]-y[0], x[1]-y[1]) })
+		for _, n := range nested {
+			a, b := owners[n[0]], owners[n[1]]
+			problems = append(problems, "dot.toml: "+b.label+" on "+m+": "+c.Paths.Show(b.dest)+" is inside "+c.Paths.Show(a.dest)+" from "+a.label)
 		}
 	}
 	var unique []string

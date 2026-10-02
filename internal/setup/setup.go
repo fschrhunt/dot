@@ -92,8 +92,22 @@ func (p Paths) Show(s string) string {
 	return s
 }
 
-// Under reports whether p lies strictly inside top, including when top is /.
+// tidy reports whether s is an absolute path already in the form filepath.Clean gives.
+func tidy(s string) bool {
+	return strings.HasPrefix(s, "/") && (s == "/" || !strings.HasSuffix(s, "/")) &&
+		!strings.Contains(s, "//") && !strings.Contains(s, "/./") && !strings.Contains(s, "/../") &&
+		!strings.HasSuffix(s, "/.") && !strings.HasSuffix(s, "/..")
+}
+
+// Under reports whether p lies strictly inside top, including when top is /. Plans ask this
+// for every pair of path and folder, so two clean absolute paths are answered by their text.
 func Under(p, top string) bool {
+	if tidy(p) && tidy(top) {
+		if top == "/" {
+			return p != "/"
+		}
+		return len(p) > len(top) && p[len(top)] == '/' && p[:len(top)] == top
+	}
 	rel, err := filepath.Rel(top, p)
 	return err == nil && rel != "." && rel != ".." && !strings.HasPrefix(rel, "../")
 }

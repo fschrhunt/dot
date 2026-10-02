@@ -25,6 +25,8 @@ jobs:
       - run: shellcheck install.sh x scripts/*.sh .githooks/pre-commit
       - run: ./scripts/guard.sh
       - run: ./scripts/smoke.sh
+      # The installer people run, against the latest release.
+      - run: sh install.sh --dir "$RUNNER_TEMP/dot" && "$RUNNER_TEMP/dot/dot" --version
   macOS:
     runs-on: macos-latest
     steps:
@@ -38,3 +40,5 @@ jobs:
       - run: go vet ./...
       - run: go test ./...
       - run: ./scripts/guard.sh
+      # The installer people run, against the latest release.
+      - run: sh install.sh --dir "$RUNNER_TEMP/dot" && "$RUNNER_TEMP/dot/dot" --version

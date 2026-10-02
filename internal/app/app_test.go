@@ -369,3 +369,48 @@ func TestLogListsTheChangesToAPath(t *testing.T) {
 		t.Fatal(lines)
 	}
 }
+
+// TestAddSharesAClonedSkillWithoutItsRepository pins the behavior: a skill that is a git clone is added without its .git folder, which stays where it is and reaches no other agent.
+func TestAddSharesAClonedSkillWithoutItsRepository(t *testing.T) {
+	f := testutil.New(t)
+	folders(t, f, ".claude", ".codex")
+	f.Write(f.Paths.Home, map[string]string{".claude/skills/review/SKILL.md": "review\n", ".claude/skills/review/.git/HEAD": "ref: refs/heads/main\n"})
+	run(t, func(out *bytes.Buffer) (int, error) {
+		return app.Add(f.Paths, []string{"~/.claude/skills/review"}, out, out)
+	})
+	testutil.Equal(t, f.Read(f.Paths.Home, ".codex/skills/review/SKILL.md")+f.Read(f.Paths.Home, ".claude/skills/review/.git/HEAD"), "review\nref: refs/heads/main\n")
+	for _, copied := range []string{filepath.Join(f.Paths.Dot, "agents/skills/review/.git"), filepath.Join(f.Paths.Home, ".codex/skills/review/.git")} {
+		if _, e := os.Stat(copied); !os.IsNotExist(e) {
+			t.Fatal("the repository was copied to " + copied)
+		}
+	}
+	testutil.Equal(t, f.Status("").Output, "up to date\n")
+}
+
+// TestAddRefusesThePartsOfTheSetupAndTheWholeHome pins the behavior: dot add refuses a path inside the setup, and a folder that holds the setup or the whole home.
+func TestAddRefusesThePartsOfTheSetupAndTheWholeHome(t *testing.T) {
+	f := testutil.New(t)
+	folders(t, f)
+	for _, path := range []string{"~/.dot/dot.toml", "~"} {
+		var out bytes.Buffer
+		if code, e := app.Add(f.Paths, []string{path}, &out, &out); code != 2 || e == nil {
+			t.Fatal(path, code, e, out.String())
+		}
+	}
+	if _, e := os.Stat(filepath.Join(f.Paths.Dot, "home")); !os.IsNotExist(e) {
+		t.Fatal("something was copied into the setup")
+	}
+}
+
+// TestStatusOfAPathShowsWhatATakeWouldChange pins the behavior: dot status with a path prints the diff a pending take would make in the setup.
+func TestStatusOfAPathShowsWhatATakeWouldChange(t *testing.T) {
+	f := testutil.New(t)
+	f.Config("version = 2\n[files]\na = \"~/a\"\n", map[string]string{"a": "1\n"})
+	testutil.OK(t, f.Apply(false))
+	f.Write(f.Paths.Home, map[string]string{"a": "1\n2\n"})
+	r := f.Status("~/a")
+	testutil.Equal(t, r.Code, 1)
+	if !strings.Contains(r.Output, "--- dot ~/a\n+++ live ~/a\n") || !strings.Contains(r.Output, "+2\n") {
+		t.Fatal(r.Output)
+	}
+}

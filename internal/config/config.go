@@ -314,6 +314,11 @@ func Load(paths setup.Paths) (*Config, error) {
 	if !ok {
 		return bad("exclude must be a list of strings")
 	}
+	// A folder that is a git clone, as many skills are, is shared without its repository: a
+	// .git inside the setup would be committed as a submodule and reach no other machine.
+	if version >= 2 {
+		c.Exclude = append(c.Exclude, ".git")
+	}
 	if c.Sync, problem = syncFor(raw, paths.Machine, version); problem != "" {
 		return bad(problem)
 	}

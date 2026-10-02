@@ -42,6 +42,8 @@ exclude = [".DS_Store", "*.tmp"]
 Defaults to `[]`. For directory mappings, globs match each path segment.
 Excluded files are never copied or deleted, even if dot wrote them before; that holds for a
 file under `home/` or `agents/` too.
+A version 2 setup always excludes `.git`, so a skill that is a git clone is shared without its
+repository.
 Excludes do not suppress a mapping whose source is a single file.
 For compatibility, patterns matching `.` (such as `.*`) also skip every source descendant.
 Use specific names such as `.DS_Store` to avoid that quirk.

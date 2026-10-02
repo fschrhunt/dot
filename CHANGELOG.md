@@ -26,6 +26,9 @@
   - `dot apply` leaves a new file in a shared folder for sync to take, and lists it as `? extra`.
   - `dot add` leaves out a file that looks like it holds a credential and refuses an agent's
     whole folder. `dot forget` refuses one file inside a shared skill.
+  - `.git` is always excluded, so a skill that is a git clone is shared without its repository
+    instead of being committed as a submodule that reaches no other machine.
+  - `dot status <path>` shows what a pending take would change in the setup.
   - Two agents whose folders are the same real path, one linked to the other, get one copy.
   - Excluding a name under `home/` or `agents/` that dot already wrote leaves the live file.
 - `dot log [path]` prints the setup's last changes, or one path's. `dot undo <path>` takes a path

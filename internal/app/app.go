@@ -45,7 +45,8 @@ The setup is ~/.dot (or DOT_HOME), a git repository: home/ mirrors your home fol
 shared by every agent, and dot.toml holds anything else. The machine name is hostname -s (or
 DOT_MACHINE). Edit files where they live; a version 1 setup is applied one way, as before.`
 
-// Status prints the last sync and plan, or the diff under path; actionable changes exit 1.
+// Status prints the last sync and plan, or the diffs under path: what apply would write, and
+// what a take would change in the setup. Actionable changes exit 1.
 func Status(c *config.Config, path string, out io.Writer) (int, error) {
 	written, e := apply.ReadWritten(c.Paths)
 	if e != nil {
@@ -74,12 +75,24 @@ func Status(c *config.Config, path string, out io.Writer) (int, error) {
 			return 2, setup.Fail(c.Paths.Show(q) + " is not managed by dot")
 		}
 		code := 0
+		var before map[string]setup.Want
 		for _, a := range hits {
 			if a.Op != "" {
 				code = 1
 			}
 			if a.Op == "write" || a.Op == "delete" {
 				if e := plan.Diff(out, c.Paths, a.Path, a.Want, false); e != nil {
+					return 2, e
+				}
+			}
+			// A take is shown the other way round: what the live file would change in the setup.
+			if a.Op == "take" {
+				if before == nil {
+					if before, _, _, e = plan.Wants(c); e != nil {
+						return 2, e
+					}
+				}
+				if e := plan.Diff(out, c.Paths, a.Path, before[a.Path], true); e != nil {
 					return 2, e
 				}
 			}

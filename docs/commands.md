@@ -33,7 +33,8 @@ dot status ~/.gitconfig
 # +new
 ```
 
-A path limits diffs to that file or folder. Binary changes print `binary files ... differ`.
+A path limits diffs to that file or folder. An edit sync would take is shown from the setup's
+side, as `--- dot` and `+++ live`. Binary changes print `binary files ... differ`.
 A path outside managed destinations is an error.
 
 ## add [--only] <path>…
@@ -50,9 +51,10 @@ An agent's instructions or skill goes to `agents/` and is written to the other i
 a path inside a skill adds the whole skill. `--only` stores an agent's path under `home/`, so it
 stays with that agent. A folder is added file by file. Needs a version 2 setup.
 
-A file that looks like it holds a credential is left out and named. An agent's whole folder,
-such as `~/.claude`, is refused: it holds sessions and credentials, so add the files and skills
-you want from it.
+A file that looks like it holds a credential is left out and named. A `.git` folder is left out
+too. An agent's whole folder, such as `~/.claude`, is refused: it holds sessions and credentials, so
+add the files and skills you want from it. Your whole home folder, and anything inside the
+setup, are refused too.
 
 A path outside your home folder is an error; map it under `[files]`. A path the setup already
 holds is left as it is, and status shows how the two differ.

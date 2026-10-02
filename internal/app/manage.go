@@ -125,6 +125,12 @@ func Add(paths setup.Paths, args []string, out, stderr io.Writer) (int, error) {
 			fmt.Fprintf(out, "%s is already managed\n", paths.Show(p))
 			continue
 		}
+		if p == paths.Dot || setup.Under(p, paths.Dot) {
+			return 2, setup.Fail(paths.Show(p) + " is part of the setup itself; dot manages what the setup is written to")
+		}
+		if p == paths.Home || setup.Under(paths.Dot, p) {
+			return 2, setup.Fail(paths.Show(p) + " holds your whole home folder or the setup itself; add the files and folders you want from it")
+		}
 		if slices.ContainsFunc(c.Agents, func(a config.Agent) bool { return a.Home != "" && p == paths.Expand(a.Home) }) {
 			return 2, setup.Fail(paths.Show(p) + " is an agent's whole folder, sessions and credentials included; add the files and skills you want from it")
 		}

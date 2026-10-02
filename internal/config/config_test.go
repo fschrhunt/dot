@@ -126,7 +126,7 @@ func TestCollisionThroughDanglingParentIsError(t *testing.T) {
 // TestNumbersOutsideGoRangeRemainAccepted protects Python setups containing large numeric values.
 func TestNumbersOutsideGoRangeRemainAccepted(t *testing.T) {
 	f := testutil.New(t)
-	f.Config("version = -9223372036854775809\n[values]\na = 9223372036854775808\nb = 0xffffffffffffffff\nc = 1e400\n[templates]\nt = \"~/t\"\n", map[string]string{"t": "{{a}} {{b}} {{c}}"})
+	f.Config("[values]\na = 9223372036854775808\nb = 0xffffffffffffffff\nc = 1e400\n[templates]\nt = \"~/t\"\n", map[string]string{"t": "{{a}} {{b}} {{c}}"})
 	testutil.OK(t, f.Apply(false))
 	testutil.Equal(t, f.Read(f.Paths.Home, "t"), "9223372036854775808 18446744073709551615 inf")
 }
@@ -178,4 +178,27 @@ func TestAMachineNamedOnlyBySyncIsValidated(t *testing.T) {
 	if !strings.Contains(r.Output, "on server: missing source") {
 		t.Fatal(r.Output)
 	}
+}
+
+// TestVersionBelowOneIsError protects against a whole-and-yet-invalid version turning the
+// setup silently into a folder of unmanaged files.
+func TestVersionBelowOneIsError(t *testing.T) {
+	f := testutil.New(t)
+	invalid(t, f, "version = 0\n", "version must be 1 or 2", nil)
+	invalid(t, f, "version = -1\n", "version must be 1 or 2", nil)
+	invalid(t, f, "version = -99999999999999999999999999\n", "version must be 1 or 2", nil)
+}
+
+// TestEmptyMachinesInAMappingIsError pins a rule that can never apply to any machine.
+func TestEmptyMachinesInAMappingIsError(t *testing.T) {
+	f := testutil.New(t)
+	invalid(t, f, "[files]\na = { to = \"~/a\", machines = [] }\n", "machines names no machines", map[string]string{"a": ""})
+}
+
+// TestAnOnlyRuleThatNamesNothingIsError protects against an agents = [] / machines = [] rule
+// that would otherwise empty every destination of the file it limits.
+func TestAnOnlyRuleThatNamesNothingIsError(t *testing.T) {
+	f := testutil.New(t)
+	agents(t, f, ".claude")
+	invalid(t, f, "version = 2\n[only]\n\"agents/instructions\" = { agents = [] }\n", "names no agents or machines", map[string]string{"agents/instructions": "rules"})
 }

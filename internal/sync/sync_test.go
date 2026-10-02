@@ -1,6 +1,8 @@
 package sync_test
 
 import (
+	"bytes"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -287,7 +289,7 @@ func TestSettledSyncWaitsForAFileToRest(t *testing.T) {
 	f := testutil.New(t)
 	twoWay(t, f, "a = \"~/a\"\n", map[string]string{"a": "1\n"})
 	f.Write(f.Paths.Home, map[string]string{"a": "2\n"})
-	code, e := dotsync.Run(f.Paths, true)
+	code, e := dotsync.Run(f.Paths, true, io.Discard)
 	if e != nil || code != 0 {
 		t.Fatal(code, e)
 	}
@@ -369,7 +371,7 @@ func TestSettledSyncWaitsWhileTheSetupIsBeingEdited(t *testing.T) {
 	f := testutil.New(t)
 	twoWay(t, f, "a = \"~/a\"\n", map[string]string{"a": "1\n"})
 	f.Write(f.Paths.Dot, map[string]string{"a": "2\n"})
-	code, e := dotsync.Run(f.Paths, true)
+	code, e := dotsync.Run(f.Paths, true, io.Discard)
 	if e != nil || code != 0 {
 		t.Fatal(code, e)
 	}
@@ -496,4 +498,71 @@ func TestSyncSeesTwoSpellingsOfOneSourceAsOneFile(t *testing.T) {
 	f.Write(f.Paths.Home, map[string]string{"a": "one\n", "alias": "other\n"})
 	testutil.Equal(t, f.Sync().Code, 1)
 	testutil.Equal(t, f.Read(f.Paths.Dot, "a")+f.Read(f.Paths.Home, "a")+f.Read(f.Paths.Home, "alias"), "old\none\nother\n")
+}
+
+// seedBareClone makes a setup whose seed commit has no .gitignore, so dot has to protect
+// its own bookkeeping. stateContents, when present, is committed tracking .state/written.json.
+func seedBareClone(f *testutil.Fixture, seedFiles map[string]string, trackState bool) {
+	t := f.T
+	bare, seed := filepath.Join(f.Temp, "remote.git"), filepath.Join(f.Temp, "seed")
+	f.Git(f.Temp, "init", "--bare", "-q", bare)
+	f.Git(f.Temp, "clone", "-q", bare, seed)
+	f.Write(seed, seedFiles)
+	if trackState {
+		f.Write(seed, map[string]string{".state/written.json": "{}\n"})
+	}
+	f.Git(seed, "add", "-A")
+	f.Git(seed, "commit", "-qm", "setup")
+	f.Git(seed, "push", "-q", "-u", "origin", "main")
+	if e := os.RemoveAll(f.Paths.Dot); e != nil {
+		t.Fatal(e)
+	}
+	f.Git(f.Temp, "clone", "-q", bare, f.Paths.Dot)
+}
+
+// TestSyncKeepsTheStateFolderOutOfGit pins the behavior: a setup with no .gitignore still
+// refuses to ever commit or push dot's bookkeeping.
+func TestSyncKeepsTheStateFolderOutOfGit(t *testing.T) {
+	f := testutil.New(t)
+	seedBareClone(f, map[string]string{"dot.toml": "[files]\na = \"~/a\"\n", "a": "1"}, false)
+	testutil.OK(t, f.Sync())
+	if out := f.Git(f.Paths.Dot, "ls-files"); strings.Contains(out, ".state") {
+		t.Fatalf("dot tracked its own state: %s", out)
+	}
+	if out := f.Git(f.Paths.Dot, "check-ignore", ".state/written.json"); !strings.Contains(out, ".state") {
+		t.Fatal("a .gitignore repair never took: " + out)
+	}
+	if out := f.Git(filepath.Join(f.Temp, "remote.git"), "ls-tree", "-r", "--name-only", "main"); strings.Contains(out, ".state") {
+		t.Fatalf("the remote received dot's state: %s", out)
+	}
+}
+
+// TestSyncRefusesWhenStateIsTracked pins the behavior: bookkeeping already in history
+// makes every run fail loudly, with the way out named.
+func TestSyncRefusesWhenStateIsTracked(t *testing.T) {
+	f := testutil.New(t)
+	seedBareClone(f, map[string]string{"dot.toml": "[files]\na = \"~/a\"\n", "a": "1"}, true)
+	var b bytes.Buffer
+	code, _ := dotsync.Run(f.Paths, false, &b)
+	testutil.Equal(t, code, 1)
+	if !strings.Contains(b.String(), "rm -r --cached .state") {
+		t.Fatal(b.String())
+	}
+	if !strings.Contains(f.Read(f.Paths.State, "last"), "rm -r --cached .state") {
+		t.Fatal(f.Read(f.Paths.State, "last"))
+	}
+}
+
+// TestSyncPrintsItsNotesToStderrOnFailure pins the behavior: a failed or refused sync also
+// prints the notes that otherwise live only in .state/sync.log.
+func TestSyncPrintsItsNotesToStderrOnFailure(t *testing.T) {
+	f := testutil.New(t)
+	seedBareClone(f, map[string]string{"dot.toml": "[files]\na = \"~/a\"\n", "a": "1"}, false)
+	f.Write(f.Paths.Dot, map[string]string{"a": "dirty"})
+	var b bytes.Buffer
+	code, _ := dotsync.Run(f.Paths, false, &b)
+	testutil.Equal(t, code, 1)
+	if !strings.Contains(b.String(), "dot: refused: uncommitted changes") {
+		t.Fatal(b.String())
+	}
 }

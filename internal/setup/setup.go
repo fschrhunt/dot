@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"syscall"
 	"unicode/utf8"
 )
@@ -180,11 +181,18 @@ func Excluded(rel string, patterns []string) bool {
 
 // globs keeps each pattern's compiled form, since a walk matches the same few patterns against
 // every path segment. A nil entry is a pattern that does not compile and so matches nothing.
-var globs = map[string]*regexp.Regexp{}
+// Every access is locked: callers share this cache.
+var (
+	globs   = map[string]*regexp.Regexp{}
+	globsMu sync.RWMutex
+)
 
 // glob implements fnmatch's shell patterns without treating backslashes as escapes.
 func glob(pat, s string) bool {
-	if r, ok := globs[pat]; ok {
+	globsMu.RLock()
+	r, ok := globs[pat]
+	globsMu.RUnlock()
+	if ok {
 		return r != nil && r.MatchString(s)
 	}
 	var b strings.Builder
@@ -226,8 +234,10 @@ func glob(pat, s string) bool {
 		}
 	}
 	b.WriteByte('$')
-	r, _ := regexp.Compile(b.String())
+	r, _ = regexp.Compile(b.String())
+	globsMu.Lock()
 	globs[pat] = r
+	globsMu.Unlock()
 	return r != nil && r.MatchString(s)
 }
 
@@ -288,7 +298,8 @@ func WantOf(src string, data []byte) (Want, error) {
 	return w, e
 }
 
-// Write atomically replaces a file or symlink, preserving an existing regular file's mode.
+// Write atomically replaces a file or symlink, preserving an existing regular file's mode. A
+// zero mode on a new file is written 0644, never 0000.
 func Write(p string, w Want) error {
 	parent := filepath.Dir(p)
 	if e := os.MkdirAll(parent, 0777); e != nil {
@@ -302,6 +313,11 @@ func Write(p string, w Want) error {
 		return os.Rename(tmp, p)
 	}
 	mode := w.Mode
+	if mode == 0 {
+		// A want without an explicit mode is a new file's bytes but not its permissions:
+		// never create one that nobody can read or change by accident.
+		mode = 0644
+	}
 	if IsFile(p) && !IsLink(p) {
 		i, e := os.Stat(p)
 		if e != nil {

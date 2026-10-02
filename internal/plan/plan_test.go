@@ -32,3 +32,12 @@ func TestDiffUsesThreeContextLines(t *testing.T) {
 	}
 	testutil.Equal(t, out.String(), "--- live ~/a\n+++ dot ~/a\n@@ -1,4 +1,4 @@\n-0\n+new\n 1\n 2\n 3\n@@ -14,4 +14,4 @@\n 13\n 14\n 15\n-16+last")
 }
+
+// TestPrintSaysWhyATakeIsHeldBack protects the held-back take's explanation: the plan line
+// without its note cannot tell a waiting take from an edit that is at war with another name.
+func TestPrintSaysWhyATakeIsHeldBack(t *testing.T) {
+	f := testutil.New(t)
+	var out bytes.Buffer
+	plan.Print(&out, f.Paths, []plan.Action{{Mark: "!", Path: f.Paths.Home + "/a", Op: "take", Note: "looks like a credential; add it yourself"}})
+	testutil.Equal(t, out.String(), "! edited here ~/a (looks like a credential; add it yourself)\n")
+}

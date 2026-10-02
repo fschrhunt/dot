@@ -216,3 +216,15 @@ func TestFilesInsideASharedSkillAreCopiedAsTheyAre(t *testing.T) {
 	testutil.OK(t, f.Apply(false))
 	testutil.Equal(t, f.Read(f.Paths.Home, ".claude/skills/scaffold/page.tmpl"), "{{title}}\n")
 }
+
+// TestOnlyOnAMissingPathIsError pins the behavior: a rule on a path that is not in the setup
+// is a mistake, not a silently kept file.
+func TestOnlyOnAMissingPathIsError(t *testing.T) {
+	f := testutil.New(t)
+	f.Config("version = 2\n[only]\n\"home/nope\" = { machines = [\"laptop\"] }\n", map[string]string{"home/x": "x\n"})
+	r := f.Status("")
+	testutil.Equal(t, r.Code, 2)
+	if !strings.Contains(r.Output, "names a path that is not in the setup") {
+		t.Fatal(r.Output)
+	}
+}

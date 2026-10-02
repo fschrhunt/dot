@@ -40,7 +40,7 @@ func dispatch(args []string, out, stderr io.Writer) (int, error) {
 		if e := only(command, args, "--settled"); e != nil {
 			return 2, e
 		}
-		return dotsync.Run(paths, slices.Contains(args, "--settled"))
+		return dotsync.Run(paths, slices.Contains(args, "--settled"), stderr)
 	case "add":
 		return app.Add(paths, args, out, stderr)
 	}

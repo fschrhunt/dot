@@ -125,7 +125,8 @@ func onlyFrom(raw map[string]any, md toml.MetaData) (map[string]only, string) {
 
 // checkOnly rejects a rule that could not mean what it says: a path outside the two folders,
 // agents on a path that is not shared, a path deeper than one shared unit, or an agent dot does
-// not know. A rule that matched nothing would otherwise drop a mapping without a word.
+// not know. A rule that names nothing would otherwise drop a mapping without a word: each
+// destination would be silently emptied the next time the plan is built.
 func checkOnly(rules map[string]only, agents []Agent) string {
 	for _, path := range slices.Sorted(maps.Keys(rules)) {
 		where := "[only] \"" + path + "\""
@@ -137,6 +138,8 @@ func checkOnly(rules map[string]only, agents []Agent) string {
 			return where + ": agents applies only to a path under agents/"
 		case parts[0] == "agents" && len(parts) > 3:
 			return where + " reaches inside a shared unit; a rule stops at the unit, such as agents/skills/<name>"
+		case len(rules[path].agents) == 0 && len(rules[path].machines) == 0:
+			return where + " names no agents or machines"
 		}
 		for _, name := range rules[path].agents {
 			if !slices.ContainsFunc(agents, func(a Agent) bool { return a.Name == name }) {

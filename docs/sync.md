@@ -15,7 +15,9 @@ remembers what it last wrote, so it can tell which side changed:
 
 In order, sync:
 
-1. Takes `.state/lock`. If another sync holds it, exits quietly with 0.
+1. Takes `.state/lock`. If another sync holds it, exits quietly with 0. It also keeps dot's
+   bookkeeping out of git: a setup that does not ignore `.state/` is repaired, and one where
+   `.state/` is tracked is refused.
 2. Takes each edit into the setup. An edit under one name of a file is written to its other
    names. A new file inside a shared folder, such as a skill, is taken as part of it.
 3. Commits what changed in the setup, as `<machine>: <paths>`. If a line being committed looks
@@ -37,6 +39,8 @@ A version 1 setup, or a machine with `[sync] take = false`, skips steps 2 and 3,
   file and `dot apply --force` keeps the setup's.
 - **Take a deletion.** A managed file you delete is written again. `dot forget <path>` is how a
   path stops being managed.
+- **Commit dot's bookkeeping.** Sync repairs a missing `.state/` ignore rule and refuses a
+  tracked one; committed state files would fight every machine's pull.
 - **Take or commit what looks like a credential.** An edit that adds a private key block or a
   token with a well-known prefix is held back and reported. Sync also refuses to commit such a
   line however it reached the setup: if it belongs there, `dot take <path>` and commit it
@@ -95,7 +99,10 @@ cat ~/.dot/.state/last
 
 The state folder also holds `written.json`, hashes of the files dot last wrote and `dir`
 for managed folder roots.
-Do not commit `.state/`. Do not delete written.json to resolve a live edit.
+Sync keeps `.state/` out of git itself: a setup that does not ignore it gets the ignore rule
+added to `.git/info/exclude` (which `dot init` also writes when you clone a remote), and a
+setup where `.state/` is tracked is refused, with the way out named. Never commit `.state/`;
+those files differ on every machine. Do not delete written.json to resolve a live edit.
 
 ## Set an upstream
 

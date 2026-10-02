@@ -2,6 +2,7 @@
 
 ## Commands
 
+- Check: `./x check` (fmt, vet, build, tests, guard). CI runs the same commands.
 - Test: `go test ./...` (offline after the module is fetched; temp HOME, DOT_HOME and local bare repos).
 - One test: `go test ./internal/sync -run '^TestSyncRefusesUncommittedChanges$'`.
 - Checks: `go build ./...`, `go vet ./...`, and `gofmt -l .` (must print nothing).
@@ -19,12 +20,16 @@
 - `internal/apply/`: executing the plan, edited-in-place protection, pruning, written.json and mappings' run commands.
 - `internal/setup/`: captured setup paths, user errors, traversal, signatures and atomic writes.
 - `internal/sync/`: locking, the ssh command and timeouts for git, taking and committing, pull
-  (rebase for two-way, ff-only for one-way), push, apply, conflict recording and sync logs.
+  (rebase for two-way, ff-only for one-way), push, apply, conflict recording, protecting
+  `.state/` from git, and sync logs.
 - `internal/schedule/`: systemd user timer and launchd agent installation and removal.
 - `internal/app/`: status, apply, take, init and help command handlers; `manage.go` has add, forget
   and agents, and `history.go` has log and undo.
 - `internal/testutil/`: temporary homes, handler capture and local git fixtures for tests.
 - `example.go` and `example/`: the embedded starter setup, a commented version 2 `dot.toml`.
+- `x`, `scripts/` and `.githooks/`: the one entry point for checks (`./x check` runs what CI
+  runs), the guard script pinning AGENTS.md's promises, the end-to-end smoke test, and the
+  pre-commit hook.
 - `docs/`: user help with worked examples.
 - `assets/`: the wordmark and logo SVGs in black and white; see `assets/README.md`.
 

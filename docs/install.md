@@ -26,11 +26,13 @@ dot's repository is its own tap:
 
 ```sh
 brew tap fschrhunt/dot https://github.com/fschrhunt/dot
-brew install dot
+brew install fschrhunt/dot/dot
 ```
 
-Each release updates the formula, `dot.rb` at the repository root, so
-`brew upgrade dot` brings the latest. The formula is generated, not hand-edited:
+The install command is fully qualified: bare `brew install dot` finds an unrelated cask of the
+same name. If Homebrew refuses the tap as untrusted, run `brew trust fschrhunt/dot` and install
+again. Each release updates the formula, `dot.rb` at the repository root, so
+`brew upgrade fschrhunt/dot/dot` brings the latest. The formula is generated, not hand-edited:
 `scripts/formula.sh` writes it from the release's checksums.
 
 ## With Go

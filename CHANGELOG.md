@@ -4,7 +4,7 @@
 
 - Install with `curl -fsSL https://fschrhunt.com/dot/install.sh | sh` (checksum-verified, into
   `~/.local/bin`) or Homebrew, from dot's own repository: `brew tap fschrhunt/dot
-  https://github.com/fschrhunt/dot && brew install dot`.
+  https://github.com/fschrhunt/dot && brew install fschrhunt/dot/dot`.
 - Releases carry build provenance (`gh attestation verify`), run CI's checks and `govulncheck`
   first, and are installed for real on macOS and Linux. `scripts/release.sh` releases in two runs.
 - `dot update [--check]` replaces an installer or archive install with the latest release, after

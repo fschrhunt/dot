@@ -1,6 +1,6 @@
 # dot releases
 
-## Unreleased
+## v1.0.0 · 2026-10-02
 
 - Install with `curl -fsSL https://fschrhunt.com/dot/install.sh | sh` (checksum-verified, into
   `~/.local/bin`) or Homebrew, from dot's own repository: `brew tap fschrhunt/dot

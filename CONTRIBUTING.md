@@ -16,7 +16,8 @@ cd dot
 
 `./x` is the one entry point: CI runs the same commands, so local and remote never
 disagree about green. `./x smoke` exercises the built binary end to end in a throwaway
-home; `./x release-check` also builds every release target. `./x links` checks external
+home; `./x bench` enforces the performance budgets in `benchmarks/`; `./x release-check`
+also builds every release target. `./x links` checks external
 links (needs [lychee](https://lychee.cli)); CI runs it weekly.
 
 Fetch the module once with `go mod download`. Tests then run offline in temp homes and local

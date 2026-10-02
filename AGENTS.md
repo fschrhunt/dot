@@ -35,6 +35,8 @@
   pre-commit hook.
 - `install.sh` and `dot.rb`: the checksum-verified installer and the Homebrew formula the
   release workflow regenerates; dot's repository is its own tap.
+- `benchmarks/`: the benchmark suite behind `./x bench`, its budgets, and timestamped
+  reports; commit the runs worth keeping.
 - `docs/`: user help with worked examples.
 - `assets/`: the wordmark and logo SVGs in black and white; see `assets/README.md`.
 

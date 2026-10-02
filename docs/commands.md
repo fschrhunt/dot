@@ -203,6 +203,20 @@ Run it again after moving the binary or changing the interval. An option it does
 an error, as it is for `dot sync`, so a mistyped `--remove` installs nothing. `dot install` is the earlier
 name for this command and still works. See [sync](sync.md) for inspecting the timer.
 
+## update [--check]
+
+```sh
+dot update --check
+# dot: v1.0.0 is out (you have v0.9.0); update with: dot update
+```
+
+Replaces this binary with the latest release, after checking its archive against the release's
+checksums, the same checks the [installer](install.md#the-installer) makes. `--check` only
+reports whether one is out, exiting 1 while it is. A Homebrew install is pointed at
+`brew upgrade dot`, and a `go install` at installing again; only an installer or archive copy
+updates itself. A development build is updated from source. In a terminal, dot mentions a newer
+release at most once a day (`DOT_NO_UPDATE_CHECK=1` stops it); it never speaks in a pipe.
+
 ## help / -h / --help
 
 ```sh

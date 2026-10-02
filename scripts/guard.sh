@@ -22,10 +22,10 @@ fi
 grep -q '"delete"' internal/plan/plan.go || bad "plan lost the delete action"
 grep -q 'ViaLink' internal/plan/plan.go || bad "ViaLink is gone; a symlinked folder may be replaced"
 
-# 3. Dot never talks to the network; git, through the user's transport, does. Importing a
-#    dialer here would change who and what sees user data.
-if prod_go | xargs grep -hE '"net"|"net/http"|"crypto/tls"' | grep -q .; then
-    bad "dot imports a network package; dot itself never speaks to the internet"
+# 3. Only the updater talks to the network; git, through the user's transport, does the rest.
+#    A network import anywhere else would change who and what sees user data.
+if prod_go | xargs grep -E '"net"|"net/http"|"crypto/tls"' /dev/null | grep -v '^internal/update/' | grep -q .; then
+    bad "dot imports a network package outside internal/update; only the updater speaks to the internet"
 fi
 
 # 4. The credential gate runs in front of every commit and every init-time copy.

@@ -38,6 +38,7 @@ usage:
   dot init [remote]         create the setup from the example, or clone it from a git remote
   dot timer [--remove]      run dot sync on a timer on this machine, every 15 minutes unless
                             [sync] every says otherwise (or stop it)
+  dot update [--check]       replace this binary with the latest release (--check only reports)
   dot help                  this text and a summary of the setup
   dot version               print the binary version (also --version)
 

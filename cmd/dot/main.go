@@ -43,6 +43,11 @@ func dispatch(args []string, out, stderr io.Writer) (int, error) {
 		return dotsync.Run(paths, slices.Contains(args, "--settled"), stderr)
 	case "add":
 		return app.Add(paths, args, out, stderr)
+	case "update":
+		if e := only(command, args, "--check"); e != nil {
+			return 2, e
+		}
+		return app.Update(paths, version, slices.Contains(args, "--check"), out)
 	}
 	c, e := config.Load(paths)
 	if e != nil {
@@ -96,8 +101,12 @@ func only(command string, args []string, allowed ...string) error {
 	return setup.Fail("unknown option " + unknown[0] + " (" + usage + ")")
 }
 
-// main prints each user problem on one prefixed line and exits with the handler's code.
+// main prints each user problem on one prefixed line and exits with the handler's code. A
+// person at a terminal hears about a newer dot at most once a day, never on update itself.
 func main() {
+	if len(os.Args) < 2 || os.Args[1] != "update" {
+		app.Notice(setup.FromEnv(), version, os.Stderr)
+	}
 	code, err := dispatch(os.Args[1:], os.Stdout, os.Stderr)
 	if err != nil {
 		for _, line := range strings.Split(strings.TrimRight(err.Error(), "\n"), "\n") {

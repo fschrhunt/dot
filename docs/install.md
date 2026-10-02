@@ -21,7 +21,7 @@ Install git if `git --version` fails. dot needs nothing else at runtime.
 
 ## go install
 
-With Go 1.25 or newer:
+With Go 1.26 or newer:
 
 ```sh
 go install github.com/fschrhunt/dot/cmd/dot@latest

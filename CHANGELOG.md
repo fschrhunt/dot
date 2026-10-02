@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- dot.toml accepts TOML 1.1: inline tables may have a trailing comma and span lines. Built with
+  Go 1.27; building from source needs Go 1.26 or newer.
 - Version 2 setups (`version = 2` in `dot.toml`, and every setup `dot init` creates):
   - Two-way sync. `dot sync` takes an edit made to a live file into the setup, commits it as
     `<machine>: <paths>`, pulls with rebase, pushes, and applies. It never merges and never takes
@@ -69,6 +71,7 @@
 - Fixed: `dot sync` no longer replaces your ssh command. It adds its options to `GIT_SSH_COMMAND`
   or `core.sshCommand` when you have set one.
 - Fixed: a git command that reaches the timeout is stopped even when its ssh process lingers.
+||||||| parent of fb4ef2e (chore: TOML 1.6 (TOML 1.1) and Go 1.27)
 - Brand assets: the dot wordmark and logo in black and white under `assets/`, and the wordmark in
   the README header.
 - A failed pull or push makes `dot sync` exit 1. It still applies the local setup.

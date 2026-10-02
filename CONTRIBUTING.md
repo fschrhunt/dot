@@ -5,7 +5,7 @@ An extra package, dependency or option has to earn its place. Removing complexit
 
 ## Setup and tests
 
-Use Go 1.25 or newer:
+Use Go 1.26 or newer:
 
 ```sh
 git clone https://github.com/fschrhunt/dot

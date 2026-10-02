@@ -2,7 +2,9 @@
 package config
 
 import (
+	"cmp"
 	"fmt"
+	"maps"
 	"math"
 	"os"
 	"path/filepath"
@@ -10,27 +12,78 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/BurntSushi/toml"
 	"github.com/fschrhunt/dot/internal/setup"
 )
 
 // Mapping is one source's destinations and copying policy, in configuration order.
+// Run is a shell command for apply to run after it changes anything under the destinations.
 type Mapping struct {
-	Label, Src            string
+	Label, Src, Run       string
 	To, Exclude, Machines []string
 	Template, Mirror      bool
 }
 
+// Sync holds this machine's [sync] settings, after its [sync.machine.<name>] overrides.
+// Take makes sync two-way: an edit to a live file is taken into the setup and committed. Push
+// sends local commits to the remote. Every is the timer's interval and AfterBoot the wait before
+// its first run after boot on Linux. Timeout stops each git command and each mapping's run
+// command; ConnectTimeout is given to ssh. Durations are whole seconds.
+type Sync struct {
+	Take, Push                                bool
+	Every, AfterBoot, Timeout, ConnectTimeout time.Duration
+}
+
+// DefaultSync returns the settings dot uses when dot.toml sets none. A version 2 setup syncs
+// both ways and pushes; a version 1 setup keeps the one-way sync it was written for.
+func DefaultSync(version int64) Sync {
+	return Sync{Take: version >= 2, Push: version >= 2, Every: 15 * time.Minute, AfterBoot: 2 * time.Minute, Timeout: time.Minute, ConnectTimeout: 5 * time.Second}
+}
+
+// Latest is the newest dot.toml version this dot reads.
+const Latest = 2
+
+// versionOf reads dot.toml's version, which defaults to 1, and returns the problem with a
+// value that is not a whole number or is newer than this dot.
+func versionOf(raw map[string]any) (int64, string) {
+	v, exists := raw["version"]
+	if !exists {
+		return 1, ""
+	}
+	if n, ok := v.(integer); ok {
+		if !strings.HasPrefix(string(n), "-") {
+			return 0, "version " + string(n) + " is newer than this dot; update dot"
+		}
+		return 0, ""
+	}
+	version, ok := v.(int64)
+	if !ok {
+		return 0, "version must be a whole number"
+	}
+	if version > Latest {
+		return 0, fmt.Sprintf("version %d is newer than this dot; update dot", version)
+	}
+	return version, ""
+}
+
 // Config is a validated setup; Names and MachineNames preserve TOML order for help output.
 type Config struct {
-	Paths               setup.Paths
-	Exclude             []string
-	Push                bool
+	Paths   setup.Paths
+	Version int64
+	Exclude []string
+	Agents  []Agent
+	Sync
 	Values              map[string]string
 	Machines            map[string]map[string]string
 	Names, MachineNames []string
 	Maps                []Mapping
+	// Kept are live paths whose source the setup holds but excludes. dot never writes them, and
+	// never deletes one it wrote before the exclusion.
+	Kept []string
+	// syncMachines are the machines named only by [sync.machine.<name>] tables.
+	syncMachines []string
 }
 
 // Resolved is a mapping with rendered paths for one machine.
@@ -141,55 +194,141 @@ func scalars(v any) (map[string]string, bool) {
 	return out, true
 }
 
-// Load parses and validates all accepted dot.toml keys, including machines not running here.
-func Load(paths setup.Paths) (*Config, error) {
-	path := filepath.Join(paths.Dot, "dot.toml")
-	if !setup.IsFile(path) {
-		return nil, setup.Fail("no setup at " + paths.Show(paths.Dot) + " (run dot init)")
+// setSync applies one table of sync settings to s and returns the first bad value's problem.
+func setSync(s *Sync, t map[string]any, where string) string {
+	for _, f := range []struct {
+		key string
+		to  *bool
+	}{{"push", &s.Push}, {"take", &s.Take}} {
+		if v, exists := t[f.key]; exists {
+			on, ok := v.(bool)
+			if !ok {
+				return where + " " + f.key + " must be true or false"
+			}
+			*f.to = on
+		}
 	}
+	for _, f := range []struct {
+		key  string
+		to   *time.Duration
+		zero bool
+	}{{"every", &s.Every, false}, {"after_boot", &s.AfterBoot, true}, {"timeout", &s.Timeout, false}, {"connect_timeout", &s.ConnectTimeout, false}} {
+		v, exists := t[f.key]
+		if !exists {
+			continue
+		}
+		text, _ := v.(string)
+		d, e := time.ParseDuration(text)
+		if e != nil || d < 0 || d == 0 && !f.zero || d%time.Second != 0 {
+			return where + " " + f.key + " must be whole seconds, minutes or hours, such as \"90s\", \"5m\" or \"1h\""
+		}
+		*f.to = d
+	}
+	return ""
+}
+
+// syncFor reads [sync] and then machine's [sync.machine.<name>] table over it. Every machine's
+// table is checked, so a mistake in one shows on all of them.
+func syncFor(raw map[string]any, machine string, version int64) (Sync, string) {
+	base := DefaultSync(version)
+	t, ok := table(raw["sync"])
+	if !ok {
+		return base, "[sync] push must be true or false"
+	}
+	if problem := setSync(&base, t, "[sync]"); problem != "" {
+		return base, problem
+	}
+	machines, ok := table(t["machine"])
+	if !ok {
+		return base, "[sync.machine] must hold [sync.machine.<name>] tables"
+	}
+	out := base
+	for _, name := range slices.Sorted(maps.Keys(machines)) {
+		where := "[sync.machine." + name + "]"
+		over, ok := machines[name].(map[string]any)
+		if !ok {
+			return base, where + " must be a table"
+		}
+		s := base
+		if problem := setSync(&s, over, where); problem != "" {
+			return base, problem
+		}
+		if name == machine {
+			out = s
+		}
+	}
+	return out, ""
+}
+
+// SyncSettings reads only this machine's sync settings, without validating the rest of the
+// setup. sync uses it before pulling, when dot.toml may be about to change; a file it cannot
+// read yields the defaults.
+func SyncSettings(paths setup.Paths) Sync {
 	var raw map[string]any
-	source, err := os.ReadFile(path)
+	source, e := source(paths)
+	if e == nil {
+		_, e = decode(source, &raw)
+	}
+	if e != nil {
+		return DefaultSync(1)
+	}
+	version, problem := versionOf(raw)
+	if problem != "" {
+		return DefaultSync(1)
+	}
+	s, problem := syncFor(raw, paths.Machine, version)
+	if problem != "" {
+		return DefaultSync(version)
+	}
+	return s
+}
+
+// source returns dot.toml's text. The file is optional once a setup has a home/ or agents/
+// folder: its layout is then the configuration, and it reads as a version 2 setup.
+func source(paths setup.Paths) (string, error) {
+	b, e := os.ReadFile(filepath.Join(paths.Dot, "dot.toml"))
+	if os.IsNotExist(e) && (setup.IsDir(filepath.Join(paths.Dot, "home")) || setup.IsDir(filepath.Join(paths.Dot, "agents"))) {
+		return "version = 2\n", nil
+	}
+	if os.IsNotExist(e) {
+		return "", setup.Fail("no setup at " + paths.Show(paths.Dot) + " (run dot init)")
+	}
+	return string(b), e
+}
+
+// Load parses and validates all accepted dot.toml keys, including machines not running here,
+// and adds the mappings a version 2 setup's home/ and agents/ folders stand for.
+func Load(paths setup.Paths) (*Config, error) {
+	source, err := source(paths)
 	if err != nil {
 		return nil, err
 	}
-	md, err := decode(string(source), &raw)
+	var raw map[string]any
+	md, err := decode(source, &raw)
 	if err != nil {
-		return nil, setup.Fail("dot.toml: " + syntaxError(string(source), err))
+		return nil, setup.Fail("dot.toml: " + syntaxError(source, err))
 	}
 	bad := func(s string) (*Config, error) { return nil, setup.Fail("dot.toml: " + s) }
-	version := int64(1)
-	if v, ok := raw["version"]; ok {
-		var yes bool
-		version, yes = v.(int64)
-		if n, ok := v.(integer); ok {
-			if !strings.HasPrefix(string(n), "-") {
-				return bad("version " + string(n) + " is newer than this dot; update dot")
-			}
-			version = 0
-			yes = true
-		}
-		if !yes {
-			return bad("version must be a whole number")
-		}
+	version, problem := versionOf(raw)
+	if problem != "" {
+		return bad(problem)
 	}
-	if version > 1 {
-		return bad(fmt.Sprintf("version %d is newer than this dot; update dot", version))
-	}
-	c := &Config{Paths: paths, Machines: map[string]map[string]string{}}
+	c := &Config{Paths: paths, Version: version, Machines: map[string]map[string]string{}}
 	var ok bool
 	c.Exclude, ok = stringsOf(raw["exclude"])
 	if !ok {
 		return bad("exclude must be a list of strings")
 	}
-	sync, ok := table(raw["sync"])
-	if !ok {
-		return bad("[sync] push must be true or false")
+	// A folder that is a git clone, as many skills are, is shared without its repository: a
+	// .git inside the setup would be committed as a submodule and reach no other machine.
+	if version >= 2 {
+		c.Exclude = append(c.Exclude, ".git")
 	}
-	if v, exists := sync["push"]; exists {
-		c.Push, ok = v.(bool)
-		if !ok {
-			return bad("[sync] push must be true or false")
-		}
+	if c.Sync, problem = syncFor(raw, paths.Machine, version); problem != "" {
+		return bad(problem)
+	}
+	if t, _ := table(raw["sync"]); t != nil {
+		c.syncMachines = orderedKeys(md, "sync", "machine")
 	}
 	c.Values, ok = scalars(raw["values"])
 	if !ok {
@@ -223,7 +362,7 @@ func Load(paths setup.Paths) (*Config, error) {
 			mp := Mapping{Label: fmt.Sprintf("[%s] \"%s\"", section, src), Src: src, Template: section == "templates", Mirror: true}
 			if opt, yes := val.(map[string]any); yes {
 				for _, k := range orderedKeys(md, section, src) {
-					if !slices.Contains([]string{"to", "mirror", "exclude", "machines"}, k) {
+					if !slices.Contains([]string{"to", "mirror", "exclude", "machines", "run"}, k) {
 						return bad(mp.Label + ": unknown key \"" + k + "\"")
 					}
 				}
@@ -243,6 +382,12 @@ func Load(paths setup.Paths) (*Config, error) {
 						return bad(mp.Label + ": machines must be a list of strings")
 					}
 				}
+				if v, exists := opt["run"]; exists {
+					mp.Run, ok = v.(string)
+					if !ok || strings.TrimSpace(mp.Run) == "" {
+						return bad(mp.Label + ": run must be a command")
+					}
+				}
 				val = opt["to"]
 			}
 			if s, yes := val.(string); yes {
@@ -254,6 +399,25 @@ func Load(paths setup.Paths) (*Config, error) {
 				}
 			}
 			c.Maps = append(c.Maps, mp)
+		}
+	}
+	if c.Agents, problem = agentsFrom(raw, md); problem != "" {
+		return bad(problem)
+	}
+	if version >= 2 {
+		rules, problem := onlyFrom(raw, md)
+		if problem == "" {
+			problem = checkOnly(rules, c.Agents)
+		}
+		if problem != "" {
+			return bad(problem)
+		}
+		problem, e := c.discover(rules)
+		if e != nil {
+			return nil, e
+		}
+		if problem != "" {
+			return nil, setup.Fail(problem)
 		}
 	}
 	return c, c.validate()
@@ -285,9 +449,11 @@ func (c *Config) Resolve(machine string) ([]Resolved, error) {
 		if e != nil {
 			return nil, e
 		}
+		// One file has one spelling, so "a" and "./a" are the same source to everything after.
 		if !filepath.IsAbs(src) {
 			src = c.Paths.Dot + "/" + src
 		}
+		src = filepath.Clean(src)
 		r := Resolved{Mapping: mp, Source: src}
 		for _, d := range mp.To {
 			s, e := Render(d, values, where)
@@ -320,8 +486,15 @@ func (c *Config) validate() error {
 			}
 		}
 	}
+	for _, m := range c.syncMachines {
+		if !slices.Contains(machines, m) {
+			machines = append(machines, m)
+		}
+	}
 	slices.Sort(machines)
 	var problems []string
+	// Many destinations share a folder, and each machine resolves the same ones again.
+	reals := map[string]string{}
 	for _, m := range machines {
 		maps, e := c.Resolve(m)
 		if e != nil {
@@ -330,6 +503,7 @@ func (c *Config) validate() error {
 		}
 		type owner struct{ real, label, dest string }
 		var owners []owner
+		at := map[string]int{}
 		for _, r := range maps {
 			where := "dot.toml: " + r.Label + " on " + m
 			if !setup.Exists(r.Source) {
@@ -349,32 +523,39 @@ func (c *Config) validate() error {
 				}
 			}
 			for _, d := range r.Dests {
-				real := filepath.Join(setup.Real(filepath.Dir(d)), filepath.Base(d))
+				dir := filepath.Dir(d)
+				if _, ok := reals[dir]; !ok {
+					reals[dir] = setup.Real(dir)
+				}
+				real := filepath.Join(reals[dir], filepath.Base(d))
 				if d == "/" {
 					real = "/"
 				}
-				idx := -1
-				for i, o := range owners {
-					if o.real == real {
-						problems = append(problems, where+": "+c.Paths.Show(d)+" is also written by "+o.label)
-						idx = i
-						break
-					}
-				}
 				o := owner{real, r.Label, d}
-				if idx >= 0 {
-					owners[idx] = o
+				if i, taken := at[real]; taken {
+					problems = append(problems, where+": "+c.Paths.Show(d)+" is also written by "+owners[i].label)
+					owners[i] = o
 				} else {
+					at[real] = len(owners)
 					owners = append(owners, o)
 				}
 			}
 		}
-		for _, a := range owners {
-			for _, b := range owners {
-				if setup.Under(b.real, a.real) {
-					problems = append(problems, "dot.toml: "+b.label+" on "+m+": "+c.Paths.Show(b.dest)+" is inside "+c.Paths.Show(a.dest)+" from "+a.label)
+		// One destination inside another: each looks up its own parents, so a setup of
+		// thousands of files is not compared pair by pair.
+		var nested [][2]int
+		for i, b := range owners {
+			for d := b.real; d != "/"; {
+				d = filepath.Dir(d)
+				if j, ok := at[d]; ok {
+					nested = append(nested, [2]int{j, i})
 				}
 			}
+		}
+		slices.SortFunc(nested, func(x, y [2]int) int { return cmp.Or(x[0]-y[0], x[1]-y[1]) })
+		for _, n := range nested {
+			a, b := owners[n[0]], owners[n[1]]
+			problems = append(problems, "dot.toml: "+b.label+" on "+m+": "+c.Paths.Show(b.dest)+" is inside "+c.Paths.Show(a.dest)+" from "+a.label)
 		}
 	}
 	var unique []string

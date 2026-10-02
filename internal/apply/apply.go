@@ -3,13 +3,16 @@ package apply
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
 	"syscall"
+	"time"
 	"unicode/utf16"
 
 	"github.com/fschrhunt/dot/internal/config"
@@ -54,6 +57,34 @@ func save(paths setup.Paths, written map[string]string) error {
 	return setup.Write(filepath.Join(paths.State, "written.json"), setup.Want{Kind: "file", Data: []byte(ascii.String()), Mode: 0644})
 }
 
+// Disown removes live paths, and every recorded path inside one of them, from the record of
+// what dot wrote, along with any folder record above them that no recorded path still sits in,
+// so a later apply leaves those paths alone.
+func Disown(paths setup.Paths, live []string) error {
+	written, e := ReadWritten(paths)
+	if e != nil {
+		return e
+	}
+	for q := range written {
+		if slices.ContainsFunc(live, func(gone string) bool { return q == gone || setup.Under(q, gone) }) {
+			delete(written, q)
+		}
+	}
+	for q, s := range written {
+		if s != "dir" {
+			continue
+		}
+		used := false
+		for other := range written {
+			used = used || setup.Under(other, q)
+		}
+		if !used {
+			delete(written, q)
+		}
+	}
+	return save(paths, written)
+}
+
 // prune removes empty parents up to a dropped root, retaining directories still in the source.
 func prune(p string, tops, dropped []string, want map[string]setup.Want) {
 	top := ""
@@ -69,17 +100,54 @@ func prune(p string, tops, dropped []string, want map[string]setup.Want) {
 	}
 }
 
-// Run executes the plan, skips paths related to refused edits, and always saves state.
-// force permits replacing edited paths; it never authorizes following destination symlinks.
-func Run(c *config.Config, force bool) (done, refused []plan.Action, err error) {
+// command runs a mapping's command through sh in the home folder, with the machine name in
+// DOT_MACHINE and the sync timeout as its deadline. It returns why the command failed, or "".
+func command(c *config.Config, text string) string {
+	ctx, cancel := context.WithTimeout(context.Background(), c.Timeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "sh", "-c", text)
+	cmd.Dir = c.Paths.Home
+	cmd.Env = append(os.Environ(), "DOT_MACHINE="+c.Paths.Machine)
+	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+	cmd.WaitDelay = time.Second
+	e := cmd.Run()
+	if ctx.Err() != nil {
+		return fmt.Sprintf("timed out after %d s", c.Timeout/time.Second)
+	}
+	if e != nil {
+		return e.Error()
+	}
+	return ""
+}
+
+// Options are apply's switches. Force permits replacing edited paths; it never authorizes
+// following destination symlinks. Take and Settle plan two-way, as plan.Options describes.
+// TakeOnly performs just the takes and leaves every live path alone, so sync can commit what it
+// took before it pulls.
+type Options struct {
+	Force, Take, TakeOnly bool
+	Settle                time.Duration
+}
+
+// Run builds the plan from the record of what dot wrote and executes it.
+func Run(c *config.Config, opt Options) (done, refused []plan.Action, err error) {
 	written, e := ReadWritten(c.Paths)
 	if e != nil {
 		return nil, nil, e
 	}
-	p, e := plan.Build(c, written)
+	p, e := plan.Build(c, written, plan.Options{Take: opt.Take || opt.TakeOnly, Settle: opt.Settle})
 	if e != nil {
 		return nil, nil, e
 	}
+	return Execute(c, p, written, opt)
+}
+
+// Execute carries out a plan built from written, skips paths related to refused edits, and
+// always saves state. A path that changed between the plan and its turn is refused, not
+// replaced; so is a take whose live file or source changed. Afterward it runs each mapping's
+// command whose destinations changed, once and in configuration order: one that ran is appended
+// to done, and one that failed to refused.
+func Execute(c *config.Config, p plan.Plan, written map[string]string, opt Options) (done, refused []plan.Action, err error) {
 	var tops, dropped []string
 	for _, r := range p.Roots {
 		tops = append(tops, r.Path)
@@ -107,11 +175,49 @@ func Run(c *config.Config, force bool) (done, refused []plan.Action, err error) 
 		if skip {
 			continue
 		}
-		if a.Mark == "!" && !force {
+		if a.Op == "take" {
+			if a.Mark == "!" {
+				refused = append(refused, a)
+				continue
+			}
+			live, e := setup.LiveSig(a.Path)
+			if e != nil {
+				return done, refused, e
+			}
+			source, e := setup.LiveSig(a.Want.Src)
+			if e != nil {
+				return done, refused, e
+			}
+			if live != a.Live || source != a.Base {
+				a.Mark, a.Note = "!", "it changed while dot was working; run dot sync again"
+				refused = append(refused, a)
+			} else if e := setup.Write(a.Want.Src, a.Want); e != nil {
+				return done, refused, setup.Fail("cannot take " + c.Paths.Show(a.Path) + ": " + setup.Reason(e))
+			} else {
+				done = append(done, a)
+			}
+			continue
+		}
+		if opt.TakeOnly {
+			continue
+		}
+		if a.Mark == "!" && !opt.Force {
 			refused = append(refused, a)
 			continue
 		}
-		e = nil
+		// A folder is exempt: dot's own earlier deletions in this run may have emptied and pruned it.
+		if a.Looked && a.Op != "mkdir" && a.Live != "dir" {
+			now, e := setup.LiveSig(a.Path)
+			if e != nil {
+				return done, refused, e
+			}
+			if now != a.Live {
+				a.Mark, a.Note = "!", "it changed while dot was working; run dot sync again"
+				refused = append(refused, a)
+				continue
+			}
+		}
+		var e error
 		if a.Op != "write" && (setup.IsLink(a.Path) || setup.Exists(a.Path) && !setup.IsDir(a.Path)) {
 			e = os.Remove(a.Path)
 		} else if a.Op == "write" && setup.IsDir(a.Path) && !setup.IsLink(a.Path) {
@@ -138,15 +244,17 @@ func Run(c *config.Config, force bool) (done, refused []plan.Action, err error) 
 		}
 		done = append(done, a)
 	}
-	for _, d := range dropped {
-		_ = syscall.Rmdir(d)
-		if !setup.IsDir(d) {
-			delete(written, d)
+	if !opt.TakeOnly {
+		for _, d := range dropped {
+			_ = syscall.Rmdir(d)
+			if !setup.IsDir(d) {
+				delete(written, d)
+			}
 		}
-	}
-	for q, s := range written {
-		if _, ok := p.Wants[q]; !ok && s != "dir" && !setup.Exists(q) {
-			delete(written, q)
+		for q, s := range written {
+			if _, ok := p.Wants[q]; !ok && s != "dir" && !setup.Exists(q) {
+				delete(written, q)
+			}
 		}
 	}
 	for q, w := range p.Wants {
@@ -158,6 +266,18 @@ func Run(c *config.Config, force bool) (done, refused []plan.Action, err error) 
 			written[q] = w.Sig
 		} else if w.Kind == "dir" && !slices.Contains(tops, q) {
 			delete(written, q)
+		}
+	}
+	changed := slices.Clone(done)
+	for _, h := range p.Hooks {
+		if opt.TakeOnly || !plan.Touched(h.Dests, changed) {
+			continue
+		}
+		a := plan.Action{Mark: ">", Path: h.Command, Op: "run"}
+		if a.Note = command(c, h.Command); a.Note != "" {
+			refused = append(refused, a)
+		} else {
+			done = append(done, a)
 		}
 	}
 	return done, refused, nil

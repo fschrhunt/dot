@@ -115,7 +115,7 @@ func (f *Fixture) Take(path string) Result {
 // Sync runs the quiet git-sync handler.
 func (f *Fixture) Sync() Result {
 	var b bytes.Buffer
-	code, e := dotsync.Run(f.Paths)
+	code, e := dotsync.Run(f.Paths, false)
 	return finish(code, e, &b)
 }
 

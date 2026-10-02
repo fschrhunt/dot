@@ -5,7 +5,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/fschrhunt/dot/internal/config"
 	"github.com/fschrhunt/dot/internal/testutil"
 )
 
@@ -122,4 +124,53 @@ func TestNumbersOutsideGoRangeRemainAccepted(t *testing.T) {
 	f.Config("version = -9223372036854775809\n[values]\na = 9223372036854775808\nb = 0xffffffffffffffff\nc = 1e400\n[templates]\nt = \"~/t\"\n", map[string]string{"t": "{{a}} {{b}} {{c}}"})
 	testutil.OK(t, f.Apply(false))
 	testutil.Equal(t, f.Read(f.Paths.Home, "t"), "9223372036854775808 18446744073709551615 inf")
+}
+
+// TestSyncEverySetsTheInterval pins the behavior: sync every sets the interval.
+func TestSyncEverySetsTheInterval(t *testing.T) {
+	f := testutil.New(t)
+	f.Config("[sync]\nevery = \"5m\"\n", nil)
+	c, e := config.Load(f.Paths)
+	if e != nil {
+		t.Fatal(e)
+	}
+	testutil.Equal(t, c.Every, 5*time.Minute)
+}
+
+// TestSyncEveryMustBeWholeSeconds pins the behavior: sync every must be whole seconds.
+func TestSyncEveryMustBeWholeSeconds(t *testing.T) {
+	f := testutil.New(t)
+	invalid(t, f, "[sync]\nevery = \"1.5s\"\n", "dot: dot.toml: [sync] every must be whole seconds, minutes or hours", nil)
+}
+
+// TestSyncMachineTableOverridesSync pins the behavior: a machine's sync table overrides [sync] on that machine only.
+func TestSyncMachineTableOverridesSync(t *testing.T) {
+	f := testutil.New(t)
+	f.Config("[sync]\nevery = \"5m\"\n[sync.machine.server]\nevery = \"1m\"\npush = true\n", nil)
+	for machine, want := range map[string]config.Sync{"laptop": {Every: 5 * time.Minute}, "server": {Every: time.Minute, Push: true}} {
+		f.Paths.Machine = machine
+		c, e := config.Load(f.Paths)
+		if e != nil {
+			t.Fatal(e)
+		}
+		testutil.Equal(t, c.Every, want.Every)
+		testutil.Equal(t, c.Push, want.Push)
+	}
+}
+
+// TestBadSyncMachineTableIsErrorEverywhere pins the behavior: a bad sync table for another machine is an error here too.
+func TestBadSyncMachineTableIsErrorEverywhere(t *testing.T) {
+	f := testutil.New(t)
+	invalid(t, f, "[sync.machine.server]\ntimeout = \"never\"\n", "dot: dot.toml: [sync.machine.server] timeout must be whole seconds, minutes or hours", nil)
+}
+
+// TestAMachineNamedOnlyBySyncIsValidated pins the behavior: a machine that only [sync.machine.<name>] names has its sources checked like any other.
+func TestAMachineNamedOnlyBySyncIsValidated(t *testing.T) {
+	f := testutil.New(t)
+	f.Config("[sync.machine.server]\nevery = \"1m\"\n[files]\n\"config.{{machine}}\" = \"~/config\"\n", map[string]string{"config.laptop": "laptop\n"})
+	r := f.Status("")
+	testutil.Equal(t, r.Code, 2)
+	if !strings.Contains(r.Output, "on server: missing source") {
+		t.Fatal(r.Output)
+	}
 }

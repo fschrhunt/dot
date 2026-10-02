@@ -23,6 +23,8 @@ func TestExcludesUseFnmatch(t *testing.T) {
 		{"outer/b", "[!abc]", false},
 		{"outer/[", "[[]", true},
 		{"outer/é", "?", true},
+		{"outer/café", "café", true},
+		{"outer/cafe", "café", false},
 	} {
 		testutil.Equal(t, setup.Excluded(c.path, []string{c.pattern}), c.excluded)
 	}

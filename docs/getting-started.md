@@ -4,70 +4,93 @@
 
 ```sh
 dot init
-# Created ~/.dot. Next: edit ~/.dot/dot.toml, run dot apply, then dot install.
-$EDITOR ~/.dot/dot.toml
+# Created ~/.dot. Next: dot add the files you want managed, then dot sync and dot timer.
 ```
 
-The example renders `instructions.md` into `~/.claude/CLAUDE.md` and `~/.codex/AGENTS.md`.
-Change the destinations and values to suit your setup.
+The setup is a git repository at `~/.dot`. Its folders say where files go:
 
-## First apply
+```text
+~/.dot/
+  home/       mirrors your home folder: home/.gitconfig is written to ~/.gitconfig
+  agents/     shared by every coding agent you have installed
+  dot.toml    optional settings
+```
+
+## Add your files
 
 ```sh
-dot status
-# + new         ~/.claude/CLAUDE.md
+dot add ~/.gitconfig ~/.config/zsh
+# added ~/.gitconfig as home/.gitconfig
+# added ~/.config/zsh as home/.config/zsh
+```
+
+Nothing moves. dot copies each file into the setup and remembers it. From then on, edit the
+file where it lives.
+
+## Share one file across your agents
+
+```sh
+dot add ~/.claude/CLAUDE.md
+# added ~/.claude/CLAUDE.md as agents/instructions.md (shared with every agent that has a place for it)
 # + new         ~/.codex/AGENTS.md
-dot apply
+# + new         ~/.config/opencode/AGENTS.md
+```
+
+Claude Code calls its instructions `CLAUDE.md`; Codex and OpenCode call theirs `AGENTS.md`. To
+dot they are one file with several names. A skill works the same way:
+
+```sh
+dot add ~/.claude/skills/review
+# added ~/.claude/skills/review as agents/skills/review (shared with every agent that has a place for it)
+```
+
+`dot agents` shows which agents dot found and where each keeps things. To keep a file to one
+agent, use `dot add --only`. See [agents](agents.md).
+
+## Sync
+
+```sh
 dot status
-# up to date
+# < take        ~/.codex/AGENTS.md
+# ~ changed     ~/.claude/CLAUDE.md
+dot sync
 ```
 
-A live file that already exists with different contents is protected. Review its diff with
-`dot status <path>`. Use `dot apply --force` when you want the source to replace it.
+You, or an agent, edited `~/.codex/AGENTS.md`. `dot sync` takes the edit into the setup, commits
+it, pushes it, and writes it under the file's other names. `dot status` shows the plan first.
 
-## Add a file, then take an edit
-
-Create a source and mapping first. take works only on managed paths.
+Run sync on a timer so you never have to:
 
 ```sh
-cp ~/.gitconfig ~/.dot/gitconfig
-cat >> ~/.dot/dot.toml <<'TOML'
-[files]
-"gitconfig" = "~/.gitconfig"
-TOML
-dot apply
-$EDITOR ~/.gitconfig
-dot take ~/.gitconfig
-# took ~/.gitconfig -> ~/.dot/gitconfig
-cd ~/.dot
-git add dot.toml gitconfig
-git commit -m 'Manage git config'
+dot timer
+# Installed: dot sync runs every 15 minutes on laptop.
 ```
 
-If `[files]` already exists, add the mapping to that table instead of adding another header.
-Do not put credentials in a setup you share.
+## A second machine
 
-## Sync a second machine
-
-Create a private remote. This example uses a bare repo on your server:
+Give the setup a private remote, such as a private repository on GitHub, then clone it on the
+other machine:
 
 ```sh
-ssh server git init --bare dot.git
-cd ~/.dot
-git add .
-git commit -m 'My setup'
-git remote add origin server:dot.git
-git push -u origin HEAD
-dot install
+git -C ~/.dot remote add origin git@github.com:you/dotfiles.git
+git -C ~/.dot push -u origin HEAD
 ```
-
-On the second machine, install the binary, then:
 
 ```sh
-dot init server:dot.git
-dot apply
-dot install
+dot init git@github.com:you/dotfiles.git
+dot sync
+dot timer
 ```
 
-Add `[machine.<name>]` overrides before using machine-specific sources. Validation checks every
-known machine. See [configuration](config.md) and [sync](sync.md).
+An edit made on either machine reaches the other on its next sync. If a file there already
+differs from the setup, dot leaves it alone and `dot status` marks it `! edited here`:
+`dot take <path>` keeps that machine's version, and `dot apply --force` replaces it.
+
+## What differs between machines
+
+- A file whose name ends in `.tmpl` is a template. `home/.gitconfig.tmpl` is written to
+  `~/.gitconfig` with each `{{name}}` filled in from `[values]` and `[machine.<name>]`.
+- `[only]` limits a path to some machines or some agents.
+- An agent that is not installed on a machine is skipped there.
+
+See [configuration](config.md) and [sync](sync.md). Do not put credentials in a setup you share.

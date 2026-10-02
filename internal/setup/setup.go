@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 	"syscall"
+	"unicode/utf8"
 )
 
 // Error is a user-facing problem with a command exit code.
@@ -92,8 +93,22 @@ func (p Paths) Show(s string) string {
 	return s
 }
 
-// Under reports whether p lies strictly inside top, including when top is /.
+// tidy reports whether s is an absolute path already in the form filepath.Clean gives.
+func tidy(s string) bool {
+	return strings.HasPrefix(s, "/") && (s == "/" || !strings.HasSuffix(s, "/")) &&
+		!strings.Contains(s, "//") && !strings.Contains(s, "/./") && !strings.Contains(s, "/../") &&
+		!strings.HasSuffix(s, "/.") && !strings.HasSuffix(s, "/..")
+}
+
+// Under reports whether p lies strictly inside top, including when top is /. Plans ask this
+// for every pair of path and folder, so two clean absolute paths are answered by their text.
 func Under(p, top string) bool {
+	if tidy(p) && tidy(top) {
+		if top == "/" {
+			return p != "/"
+		}
+		return len(p) > len(top) && p[len(top)] == '/' && p[:len(top)] == top
+	}
 	rel, err := filepath.Rel(top, p)
 	return err == nil && rel != "." && rel != ".." && !strings.HasPrefix(rel, "../")
 }
@@ -163,8 +178,15 @@ func Excluded(rel string, patterns []string) bool {
 	return false
 }
 
+// globs keeps each pattern's compiled form, since a walk matches the same few patterns against
+// every path segment. A nil entry is a pattern that does not compile and so matches nothing.
+var globs = map[string]*regexp.Regexp{}
+
 // glob implements fnmatch's shell patterns without treating backslashes as escapes.
 func glob(pat, s string) bool {
+	if r, ok := globs[pat]; ok {
+		return r != nil && r.MatchString(s)
+	}
 	var b strings.Builder
 	b.WriteString("(?s)^")
 	for i := 0; i < len(pat); i++ {
@@ -198,12 +220,15 @@ func glob(pat, s string) bool {
 			b.WriteString("[" + v + "]")
 			i = j
 		default:
-			b.WriteString(regexp.QuoteMeta(string(pat[i])))
+			_, size := utf8.DecodeRuneInString(pat[i:])
+			b.WriteString(regexp.QuoteMeta(pat[i : i+size]))
+			i += size - 1
 		}
 	}
 	b.WriteByte('$')
-	r, e := regexp.Compile(b.String())
-	return e == nil && r.MatchString(s)
+	r, _ := regexp.Compile(b.String())
+	globs[pat] = r
+	return r != nil && r.MatchString(s)
 }
 
 // Hash returns the state-compatible SHA256 digest of bytes.

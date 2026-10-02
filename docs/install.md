@@ -17,7 +17,7 @@ dot version
 ```
 
 Use the actual downloaded filename. Add the PATH line to your shell profile.
-Install git if `git --version` fails. dot needs no Python or Go at runtime.
+Install git if `git --version` fails. dot needs nothing else at runtime.
 
 ## go install
 
@@ -44,5 +44,5 @@ export PATH="$HOME/.local/bin:$PATH"
 
 The starter setup is embedded. You can move the binary without keeping the checkout.
 
-After replacing a previous installation, run `dot install` again. The timer will use
+After replacing a previous installation, run `dot timer` again. The timer will use
 that binary's absolute path. Keep the binary there while the timer is installed.

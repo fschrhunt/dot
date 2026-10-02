@@ -31,6 +31,9 @@ usage:
   dot apply [-n] [--force]  only write the setup here; -n prints the plan; --force overwrites
                             files edited here (> run is a mapping's command, run after a change)
   dot take <path>           only copy a live file or folder back to its source in the setup
+  dot log [path]            the setup's last changes, or one path's: who changed what, and when
+  dot undo <path>           take a path back to before its last change, here and, after the
+                            next sync, everywhere
   dot agents                the agents dot knows, which are installed here, and their places
   dot init [remote]         create the setup from the example, or clone it from a git remote
   dot timer [--remove]      run dot sync on a timer on this machine, every 15 minutes unless
@@ -173,7 +176,7 @@ func Take(c *config.Config, path string, out io.Writer) (int, error) {
 			if setup.Hash(live) == w.Sig {
 				continue
 			}
-			patched, note := plan.Untemplate(c, w.Src, w.Data, live)
+			patched, note := plan.Untemplate(c, w.Src, live)
 			if note != "" {
 				if e := plan.Diff(out, c.Paths, q, w, true); e != nil {
 					return 2, e

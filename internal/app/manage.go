@@ -164,6 +164,16 @@ func Forget(c *config.Config, args []string, out io.Writer) (int, error) {
 	if e != nil {
 		return 2, e
 	}
+	maps, e := c.Resolve(c.Paths.Machine)
+	if e != nil {
+		return 2, e
+	}
+	// A source a line in dot.toml names stays, even when it sits under home/ or agents/.
+	mapped := func(source string) bool {
+		return slices.ContainsFunc(maps, func(r config.Resolved) bool {
+			return strings.HasPrefix(r.Label, "[") && (r.Source == source || setup.Under(source, r.Source))
+		})
+	}
 	var gone []string
 	for _, arg := range args {
 		p := c.Paths.Abs(arg)
@@ -174,7 +184,7 @@ func Forget(c *config.Config, args []string, out io.Writer) (int, error) {
 			}
 			found = true
 			rel, e := filepath.Rel(c.Paths.Dot, w.Src)
-			if e != nil || !strings.HasPrefix(rel, "home/") && !strings.HasPrefix(rel, "agents/") {
+			if e != nil || !strings.HasPrefix(rel, "home/") && !strings.HasPrefix(rel, "agents/") || mapped(w.Src) {
 				return 2, setup.Fail(c.Paths.Show(p) + " is mapped in dot.toml; remove its line there")
 			}
 			if !slices.Contains(gone, w.Src) {

@@ -28,6 +28,10 @@
     whole folder. `dot forget` refuses one file inside a shared skill.
   - Two agents whose folders are the same real path, one linked to the other, get one copy.
   - Excluding a name under `home/` or `agents/` that dot already wrote leaves the live file.
+- `dot log [path]` prints the setup's last changes, or one path's. `dot undo <path>` takes a path
+  back to before its last change, as a new commit, and applies it.
+- An edit to a rendered file is taken when a value in it holds a newline, and when the template
+  has no final newline.
 - `dot take` carries an edit to a rendered file into its template when it touches only lines the
   template leaves as they are. It used to refuse every template destination.
 - Version 1 setups behave as before.

@@ -457,3 +457,34 @@ func TestSyncSharesANewFileInASkillWithEveryAgent(t *testing.T) {
 	testutil.OK(t, f.Sync())
 	testutil.Equal(t, f.Read(f.Paths.Dot, "agents/skills/review/notes.md")+f.Read(f.Paths.Home, ".claude/skills/review/notes.md"), "new\nnew\n")
 }
+
+// TestSyncTakesAnEditBesideAValueOfSeveralLines pins the behavior: a template filled by a value that holds a newline still takes edits to its plain lines.
+func TestSyncTakesAnEditBesideAValueOfSeveralLines(t *testing.T) {
+	f := testutil.New(t)
+	f.Remote("version = 2\n[values]\nblock = \"a\\nb\"\n[templates]\n\"t\" = \"~/t\"\n", map[string]string{"t": "Rules.\n{{block}}\nEnd.\n"})
+	testutil.OK(t, f.Sync())
+	testutil.Equal(t, f.Read(f.Paths.Home, "t"), "Rules.\na\nb\nEnd.\n")
+	f.Write(f.Paths.Home, map[string]string{"t": "Rules.\na\nb\nEnd.\nMore.\n"})
+	testutil.OK(t, f.Sync())
+	testutil.Equal(t, f.Read(f.Paths.Dot, "t"), "Rules.\n{{block}}\nEnd.\nMore.\n")
+}
+
+// TestSyncTakesALineAddedAfterATemplatesUnfinishedLastLine pins the behavior: when a template's last line has a placeholder and no final newline, a line added below it is taken.
+func TestSyncTakesALineAddedAfterATemplatesUnfinishedLastLine(t *testing.T) {
+	f := testutil.New(t)
+	f.Remote("version = 2\n[templates]\n\"t\" = \"~/t\"\n", map[string]string{"t": "Machine {{machine}}"})
+	testutil.OK(t, f.Sync())
+	f.Write(f.Paths.Home, map[string]string{"t": "Machine laptop\nMore.\n"})
+	testutil.OK(t, f.Sync())
+	testutil.Equal(t, f.Read(f.Paths.Dot, "t"), "Machine {{machine}}\nMore.\n")
+}
+
+// TestSyncRefusesAnEditInsideAValueOfSeveralLines pins the behavior: an edit to one of the lines a value fills in is not taken.
+func TestSyncRefusesAnEditInsideAValueOfSeveralLines(t *testing.T) {
+	f := testutil.New(t)
+	f.Remote("version = 2\n[values]\nblock = \"a\\nb\"\n[templates]\n\"t\" = \"~/t\"\n", map[string]string{"t": "Rules.\n{{block}}\n"})
+	testutil.OK(t, f.Sync())
+	f.Write(f.Paths.Home, map[string]string{"t": "Rules.\na\nchanged\n"})
+	testutil.Equal(t, f.Sync().Code, 1)
+	testutil.Equal(t, f.Read(f.Paths.Dot, "t"), "Rules.\n{{block}}\n")
+}

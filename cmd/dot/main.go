@@ -52,6 +52,13 @@ func dispatch(args []string, out, stderr io.Writer) (int, error) {
 		return app.Forget(c, args, out)
 	case "agents":
 		return app.Agents(c, out)
+	case "log":
+		return app.Log(c, first, out)
+	case "undo":
+		if len(args) != 1 {
+			return 2, setup.Fail("usage: dot undo <live-path>")
+		}
+		return app.Undo(c, first, out, stderr)
 	case "timer", "install":
 		return schedule.Run(paths, c.Sync, slices.Contains(args, "--remove"), out)
 	case "take":

@@ -158,6 +158,19 @@ For a rendered file, take carries the edit into its template when it touches onl
 template leaves as they are; an edit to a line the template fills in belongs in the template.
 If a dropped file was edited, remove it yourself or use `dot apply --force`.
 
+## Take a change back
+
+Every take is a commit, so a bad edit, by you or by an agent, is one command to reverse on
+every machine:
+
+```sh
+dot log ~/.codex/AGENTS.md     # who changed it, and when
+dot undo ~/.codex/AGENTS.md    # back to before its last change
+dot sync
+```
+
+See [commands](commands.md#undo-path).
+
 ## Diverged branches or remote failures
 
 Check the final sync line and git state:

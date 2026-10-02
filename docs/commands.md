@@ -69,6 +69,35 @@ A shared path is forgotten under all of its names. A path mapped in `dot.toml` i
 remove its line there. One file inside a shared skill is refused, since the skill would take it
 back: forget the skill, or remove the file from the setup.
 
+## log [path]
+
+```sh
+dot log ~/.codex/AGENTS.md
+# 5f8f763 2026-10-02 02:04 laptop: ~/.codex/AGENTS.md
+# dadc031 2026-10-01 18:20 desktop: ~/.claude/CLAUDE.md
+```
+
+Prints the setup's last twenty changes, newest first: the commit, when it was made, and the
+machine and paths it names. With a path, only the changes to that file or folder, under any of
+its names. The setup is a git repository, so `git -C ~/.dot log` shows the rest.
+
+## undo <path>
+
+```sh
+dot undo ~/.codex/AGENTS.md
+# undid 5f8f763 laptop: ~/.codex/AGENTS.md for ~/.codex/AGENTS.md; dot sync sends it to the other machines
+# ~ changed     ~/.claude/CLAUDE.md
+# ~ changed     ~/.codex/AGENTS.md
+```
+
+Takes a file or folder back to how the setup had it before its last change, commits that as
+`<machine>: undo <path>`, and applies it here. The next sync sends it to the other machines.
+Nothing is erased: the undo is one more change, so `dot undo` again brings the path forward.
+
+A path with changes that are not synced yet is refused, exit 1; `dot sync` first, or
+`dot apply --force` to drop them. A path whose last change is the one that added it is refused
+too: `dot forget` is how a path stops being managed.
+
 ## agents
 
 ```sh

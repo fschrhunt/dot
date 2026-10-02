@@ -22,7 +22,7 @@
   (rebase for two-way, ff-only for one-way), push, apply, conflict recording and sync logs.
 - `internal/schedule/`: systemd user timer and launchd agent installation and removal.
 - `internal/app/`: status, apply, take, init and help command handlers; `manage.go` has add, forget
-  and agents.
+  and agents, and `history.go` has log and undo.
 - `internal/testutil/`: temporary homes, handler capture and local git fixtures for tests.
 - `example.go` and `example/`: the embedded starter setup, a commented version 2 `dot.toml`.
 - `docs/`: user help with worked examples.

@@ -37,7 +37,8 @@ dot timer                             # and keep doing it, every 15 minutes
 ```
 
 `dot status` shows what a sync would do before it does it. dot never merges and never syncs a
-deletion: a file changed on two sides is reported and left alone until you choose.
+deletion: a file changed on two sides is reported and left alone until you choose. Every change
+is a commit, so `dot log <path>` shows who changed a file and `dot undo <path>` takes it back.
 See [the docs](docs/README.md) for installation,
 configuration, commands and syncing a second machine.
 

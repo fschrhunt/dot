@@ -129,11 +129,7 @@ type Options struct {
 	Settle                time.Duration
 }
 
-// Run executes the plan, skips paths related to refused edits, and always saves state. A path
-// that changed between the plan and its turn is refused, not replaced; so is a take whose live
-// file or source changed. Afterward it runs each
-// mapping's command whose destinations changed, once and in configuration order: one that ran
-// is appended to done, and one that failed to refused.
+// Run builds the plan from the record of what dot wrote and executes it.
 func Run(c *config.Config, opt Options) (done, refused []plan.Action, err error) {
 	written, e := ReadWritten(c.Paths)
 	if e != nil {
@@ -143,6 +139,15 @@ func Run(c *config.Config, opt Options) (done, refused []plan.Action, err error)
 	if e != nil {
 		return nil, nil, e
 	}
+	return Execute(c, p, written, opt)
+}
+
+// Execute carries out a plan built from written, skips paths related to refused edits, and
+// always saves state. A path that changed between the plan and its turn is refused, not
+// replaced; so is a take whose live file or source changed. Afterward it runs each mapping's
+// command whose destinations changed, once and in configuration order: one that ran is appended
+// to done, and one that failed to refused.
+func Execute(c *config.Config, p plan.Plan, written map[string]string, opt Options) (done, refused []plan.Action, err error) {
 	var tops, dropped []string
 	for _, r := range p.Roots {
 		tops = append(tops, r.Path)
@@ -212,7 +217,7 @@ func Run(c *config.Config, opt Options) (done, refused []plan.Action, err error)
 				continue
 			}
 		}
-		e = nil
+		var e error
 		if a.Op != "write" && (setup.IsLink(a.Path) || setup.Exists(a.Path) && !setup.IsDir(a.Path)) {
 			e = os.Remove(a.Path)
 		} else if a.Op == "write" && setup.IsDir(a.Path) && !setup.IsLink(a.Path) {

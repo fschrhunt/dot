@@ -7,6 +7,9 @@ import (
 	"syscall"
 	"testing"
 
+	"github.com/fschrhunt/dot/internal/apply"
+	"github.com/fschrhunt/dot/internal/config"
+	"github.com/fschrhunt/dot/internal/plan"
 	"github.com/fschrhunt/dot/internal/testutil"
 )
 
@@ -358,4 +361,30 @@ func TestFailedRunIsReported(t *testing.T) {
 		t.Fatal(r.Output)
 	}
 	testutil.Equal(t, f.Read(f.Paths.Home, "a"), "1")
+}
+
+// TestTakeIsRefusedWhenItsSourceChangedAfterThePlan pins the behavior: a take planned against one version of the source does not overwrite an edit made to that source before the take's turn.
+func TestTakeIsRefusedWhenItsSourceChangedAfterThePlan(t *testing.T) {
+	f := testutil.New(t)
+	f.Config("version = 2\n[files]\na = \"~/a\"\n", map[string]string{"a": "1\n"})
+	testutil.OK(t, f.Apply(false))
+	f.Write(f.Paths.Home, map[string]string{"a": "live\n"})
+	c, e := config.Load(f.Paths)
+	if e != nil {
+		t.Fatal(e)
+	}
+	written, e := apply.ReadWritten(f.Paths)
+	if e != nil {
+		t.Fatal(e)
+	}
+	p, e := plan.Build(c, written, plan.Options{Take: true})
+	if e != nil {
+		t.Fatal(e)
+	}
+	f.Write(f.Paths.Dot, map[string]string{"a": "setup\n"})
+	done, refused, e := apply.Execute(c, p, written, apply.Options{Take: true})
+	if e != nil || len(done) != 0 || len(refused) != 1 {
+		t.Fatal(done, refused, e)
+	}
+	testutil.Equal(t, f.Read(f.Paths.Dot, "a")+f.Read(f.Paths.Home, "a"), "setup\nlive\n")
 }

@@ -258,22 +258,29 @@ func take(p *Plan, paths setup.Paths, src string, base []byte, group []found, de
 	return nil
 }
 
-// Untemplate carries an edit made to a rendered file back into its template at src. rendered is
-// what the template gives now and live is the edited file. It returns the template's new text,
-// or why the edit cannot be carried: it touches a line the template fills in, rendering the
-// result does not give the edited file again, or it would write a credential into the template.
-func Untemplate(c *config.Config, src string, rendered, live []byte) ([]byte, string) {
+// Untemplate carries an edit made to a rendered file back into its template at src; live is
+// the edited file. It returns the template's new text, or why the edit cannot be carried: it
+// touches a line the template fills in, rendering the result as apply would does not give the
+// edited file again, or it would write a credential into the template.
+func Untemplate(c *config.Config, src string, live []byte) ([]byte, string) {
 	refused := "it changes a line that " + c.Paths.Show(src) + " fills in; edit that template instead"
 	raw, e := os.ReadFile(src)
 	if e != nil {
 		return nil, refused
 	}
-	template := strings.ReplaceAll(strings.ReplaceAll(string(raw), "\r\n", "\n"), "\r", "\n")
-	patched, ok := Unrender(template, string(rendered), string(live))
+	plain := func(s string) string {
+		return strings.ReplaceAll(strings.ReplaceAll(s, "\r\n", "\n"), "\r", "\n")
+	}
+	values := c.ValuesFor(c.Paths.Machine)
+	template := plain(string(raw))
+	patched, ok := Unrender(template, string(live), func(line string) (string, bool) {
+		s, e := config.Render(line, values, src)
+		return s, e == nil
+	})
 	if !ok {
 		return nil, refused
 	}
-	if again, e := config.Render(patched, c.ValuesFor(c.Paths.Machine), src); e != nil || again != string(live) {
+	if again, e := config.Render(plain(patched), values, src); e != nil || again != string(live) {
 		return nil, refused
 	}
 	if Secret([]byte(template), []byte(patched)) {
@@ -336,7 +343,7 @@ func Build(c *config.Config, written map[string]string, opt Options) (Plan, erro
 					return nil, c.Paths.Show(src) + " is written both as a template and as it is; edit it in the setup"
 				}
 			} else if first.Template {
-				source = func(live []byte) ([]byte, string) { return Untemplate(c, src, first.Data, live) }
+				source = func(live []byte) ([]byte, string) { return Untemplate(c, src, live) }
 			}
 			if e := take(&p, c.Paths, src, first.Data, group, bySource[src], held, source); e != nil {
 				return p, e

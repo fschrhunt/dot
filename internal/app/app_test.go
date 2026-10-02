@@ -217,6 +217,15 @@ func TestForgetRefusesAPathMappedInDotToml(t *testing.T) {
 	testutil.Equal(t, f.Read(f.Paths.Dot, "a"), "1\n")
 }
 
+// TestForgetRefusesAHomeSourceThatDotTomlAlsoMaps pins the behavior: a file under home/ that a line in dot.toml also writes elsewhere is not removed, so that line does not lose its source.
+func TestForgetRefusesAHomeSourceThatDotTomlAlsoMaps(t *testing.T) {
+	f := testutil.New(t)
+	f.Config("version = 2\n[files]\n\"home/a\" = \"~/alias\"\n", map[string]string{"home/a": "1\n"})
+	testutil.OK(t, f.Apply(false))
+	testutil.Equal(t, forget(t, f, "~/a").Code, 2)
+	testutil.Equal(t, f.Read(f.Paths.Dot, "home/a"), "1\n")
+}
+
 // TestForgetKeepsASetupThatHasNoDotToml pins the behavior: forgetting the last file leaves home/ in place, so a setup configured only by its folders still loads.
 func TestForgetKeepsASetupThatHasNoDotToml(t *testing.T) {
 	f := testutil.New(t)
@@ -289,5 +298,74 @@ func TestAgentsShowsWhereEachAgentKeepsThings(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Fatalf("got %q; want %q", got, want)
 		}
+	}
+}
+
+// edited seeds a version 2 setup with a remote, then syncs an edit to ~/a so its history has two changes.
+func edited(t *testing.T, f *testutil.Fixture) {
+	t.Helper()
+	f.Remote("version = 2\n[files]\na = \"~/a\"\n", map[string]string{"a": "1\n"})
+	testutil.OK(t, f.Sync())
+	f.Write(f.Paths.Home, map[string]string{"a": "2\n"})
+	testutil.OK(t, f.Sync())
+}
+
+// undo loads the setup and undoes one live path's last change.
+func undo(t *testing.T, f *testutil.Fixture, path string) testutil.Result {
+	t.Helper()
+	c, e := config.Load(f.Paths)
+	if e != nil {
+		t.Fatal(e)
+	}
+	var out bytes.Buffer
+	code, e := app.Undo(c, path, &out, &out)
+	if e != nil {
+		out.WriteString(e.Error())
+	}
+	return testutil.Result{Code: code, Output: out.String()}
+}
+
+// TestUndoTakesAPathBackOneChange pins the behavior: dot undo restores a path to before its last change, in the setup and live, as a new commit named for the machine.
+func TestUndoTakesAPathBackOneChange(t *testing.T) {
+	f := testutil.New(t)
+	edited(t, f)
+	testutil.OK(t, undo(t, f, "~/a"))
+	testutil.Equal(t, f.Read(f.Paths.Home, "a")+f.Read(f.Paths.Dot, "a"), "1\n1\n")
+	testutil.Equal(t, strings.TrimSpace(f.Git(f.Paths.Dot, "log", "-1", "--format=%s")), "laptop: undo ~/a")
+}
+
+// TestUndoRefusesAPathWithUnsyncedChanges pins the behavior: dot undo does not bury an edit that has not been synced.
+func TestUndoRefusesAPathWithUnsyncedChanges(t *testing.T) {
+	f := testutil.New(t)
+	edited(t, f)
+	f.Write(f.Paths.Home, map[string]string{"a": "3\n"})
+	testutil.Equal(t, undo(t, f, "~/a").Code, 1)
+	testutil.Equal(t, f.Read(f.Paths.Home, "a")+f.Read(f.Paths.Dot, "a"), "3\n2\n")
+}
+
+// TestUndoRefusesAPathItsLastChangeAdded pins the behavior: dot undo does not remove a path whose only change is the one that added it.
+func TestUndoRefusesAPathItsLastChangeAdded(t *testing.T) {
+	f := testutil.New(t)
+	f.Remote("version = 2\n[files]\na = \"~/a\"\n", map[string]string{"a": "1\n"})
+	testutil.OK(t, f.Sync())
+	r := undo(t, f, "~/a")
+	testutil.Equal(t, r.Code, 2)
+	if !strings.Contains(r.Output, "was added by its last change") {
+		t.Fatal(r.Output)
+	}
+	testutil.Equal(t, f.Read(f.Paths.Home, "a"), "1\n")
+}
+
+// TestLogListsTheChangesToAPath pins the behavior: dot log with a path prints that path's changes, newest first, each with its machine.
+func TestLogListsTheChangesToAPath(t *testing.T) {
+	f := testutil.New(t)
+	edited(t, f)
+	c, e := config.Load(f.Paths)
+	if e != nil {
+		t.Fatal(e)
+	}
+	lines := strings.Split(strings.TrimSpace(run(t, func(out *bytes.Buffer) (int, error) { return app.Log(c, "~/a", out) })), "\n")
+	if len(lines) != 2 || !strings.HasSuffix(lines[0], " laptop: ~/a") || !strings.HasSuffix(lines[1], " setup") {
+		t.Fatal(lines)
 	}
 }

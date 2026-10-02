@@ -388,3 +388,38 @@ func TestTakeIsRefusedWhenItsSourceChangedAfterThePlan(t *testing.T) {
 	}
 	testutil.Equal(t, f.Read(f.Paths.Dot, "a")+f.Read(f.Paths.Home, "a"), "setup\nlive\n")
 }
+
+// TestBadWrittenJSONNamesItself protects the state file's own diagnostic from becoming the
+// raw Go parser error: the user must be told which file is the problem and what to do.
+func TestBadWrittenJSONNamesItself(t *testing.T) {
+	f := testutil.New(t)
+	f.Config("[files]\na = \"~/a\"\n", map[string]string{"a": "1"})
+	testutil.OK(t, f.Apply(false))
+	if e := os.WriteFile(filepath.Join(f.Paths.State, "written.json"), []byte("not json"), 0644); e != nil {
+		t.Fatal(e)
+	}
+	r := f.Status("")
+	testutil.Equal(t, r.Code, 2)
+	if !strings.Contains(r.Output, "cannot parse ~/.dot/.state/written.json") {
+		t.Fatal(r.Output)
+	}
+}
+
+// TestHomeFolderRemovalPrunesEmptyParents protects version 2's folder mapping from leaving
+// empty folders behind when a home/ file is deleted: home/ has no mapping root, so only the
+// home folder itself can be the prune boundary.
+func TestHomeFolderRemovalPrunesEmptyParents(t *testing.T) {
+	f := testutil.New(t)
+	f.Write(f.Paths.Dot, map[string]string{"home/keep/k": "1\n", "home/.config/tool/f": "2\n"})
+	testutil.OK(t, f.Apply(false))
+	if e := os.RemoveAll(filepath.Join(f.Paths.Dot, "home/keep")); e != nil {
+		t.Fatal(e)
+	}
+	testutil.Equal(t, f.Apply(false).Code, 0)
+	if _, e := os.Stat(filepath.Join(f.Paths.Home, "keep")); !os.IsNotExist(e) {
+		t.Fatal("empty ~/keep was left behind")
+	}
+	if _, e := os.Stat(filepath.Join(f.Paths.Home, ".config/tool/f")); e != nil {
+		t.Fatal("an unrelated file was removed")
+	}
+}

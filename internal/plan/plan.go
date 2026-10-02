@@ -507,7 +507,9 @@ func Build(c *config.Config, written map[string]string, opt Options) (Plan, erro
 	return p, nil
 }
 
-// Print writes the exact plan labels, with a trailing slash for directory creations.
+// Print writes the exact plan labels, with a trailing slash for directory creations. A refusal
+// carries its reason: without it "! edited here" cannot tell a settled edit from a take dot is
+// holding back, and the note is the only place the reason exists.
 func Print(out io.Writer, paths setup.Paths, actions []Action) {
 	labels := map[string]string{"+": "new", "~": "changed", "-": "removed", "!": "edited here", "?": "extra", ">": "run", "<": "take"}
 	for _, a := range actions {
@@ -519,7 +521,11 @@ func Print(out io.Writer, paths setup.Paths, actions []Action) {
 		if a.Mark == ">" {
 			shown = a.Path
 		}
-		fmt.Fprintf(out, "%s %-11s %s%s\n", a.Mark, labels[a.Mark], shown, suffix)
+		note := ""
+		if a.Note != "" {
+			note = " (" + a.Note + ")"
+		}
+		fmt.Fprintf(out, "%s %-11s %s%s%s\n", a.Mark, labels[a.Mark], shown, suffix, note)
 	}
 }
 

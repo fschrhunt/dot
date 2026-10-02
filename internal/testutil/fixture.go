@@ -4,6 +4,7 @@ package testutil
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -112,10 +113,10 @@ func (f *Fixture) Take(path string) Result {
 	return f.invoke(func(c *config.Config, b *bytes.Buffer) (int, error) { return app.Take(c, path, b) })
 }
 
-// Sync runs the quiet git-sync handler.
+// Sync runs the sync handler, discarding the stderr notes the real command prints.
 func (f *Fixture) Sync() Result {
 	var b bytes.Buffer
-	code, e := dotsync.Run(f.Paths, false)
+	code, e := dotsync.Run(f.Paths, false, io.Discard)
 	return finish(code, e, &b)
 }
 

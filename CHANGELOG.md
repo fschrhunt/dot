@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- Fixed: `dot sync` no longer commits or pushes `.state/`. A setup that does not ignore it gets
+  the rule added to `.git/info/exclude`, and one where `.state/` is already tracked is refused
+  with the way out named, instead of fighting every other machine's pull.
+- Fixed: an `[only]` rule that names no agents or machines, a `[files]` mapping with an empty
+  `machines` list, and a rule on a path that is not in the setup are errors, instead of
+  silently emptying the path's destinations.
+- Fixed: `version = 0` and other versions below 1 are errors, instead of silently managing
+  nothing.
+- Fixed: a `written.json` dot cannot read names the file and what to do with it, instead of a
+  raw parser error.
+- A failed `dot sync` prints its notes to the terminal, one `dot:` line each, as well as
+  recording them in `.state/last` and `.state/sync.log`. It used to exit non-zero in silence.
+- `dot status` shows why a take is held back on the plan line itself, such as two names of one
+  file edited differently.
+- Deleting a file under `home/` prunes the empty folders above it, as mapped folders already did.
 - dot.toml accepts TOML 1.1: inline tables may have a trailing comma and span lines. Built with
   Go 1.27; building from source needs Go 1.26 or newer.
 - Version 2 setups (`version = 2` in `dot.toml`, and every setup `dot init` creates):
@@ -71,7 +86,6 @@
 - Fixed: `dot sync` no longer replaces your ssh command. It adds its options to `GIT_SSH_COMMAND`
   or `core.sshCommand` when you have set one.
 - Fixed: a git command that reaches the timeout is stopped even when its ssh process lingers.
-||||||| parent of fb4ef2e (chore: TOML 1.6 (TOML 1.1) and Go 1.27)
 - Brand assets: the dot wordmark and logo in black and white under `assets/`, and the wordmark in
   the README header.
 - A failed pull or push makes `dot sync` exit 1. It still applies the local setup.

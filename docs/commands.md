@@ -18,7 +18,8 @@ dot status
 ```
 
 Status prints what `dot sync` would do. `<` is an edit sync would take into the setup; `!` is a
-file sync will not touch until you choose. `dot apply -n` prints what apply alone would do.
+file sync will not touch until you choose. A held-back take carries its reason on the line,
+such as two names of one file edited differently. `dot apply -n` prints what apply alone would do.
 The last sync line appears only after a sync. `?` means an extra file under a mapping
 with `mirror = false`. A directory creation ends in `/`. `> run` names a mapping's
 [`run`](config.md#run) command that apply would run after these changes.
@@ -149,8 +150,10 @@ dot status
 # up to date
 ```
 
-Sync is quiet. It takes live edits, commits, pulls, pushes, then applies; a version 1 setup only
-pulls and applies. Read `.state/last` or `.state/sync.log` for results. See [sync](sync.md).
+Sync is quiet when it succeeds. It takes live edits, commits, pulls, pushes, then applies; a
+version 1 setup only pulls and applies. On failure it prints the same notes to the terminal,
+one `dot:` line each, and always records them, success or failure, in `.state/last` and
+`.state/sync.log`. See [sync](sync.md).
 `--settled`, which the timer uses, leaves a file modified in the last minute for the next run,
 and waits while the setup itself was edited that recently.
 

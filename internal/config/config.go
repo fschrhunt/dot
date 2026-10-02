@@ -46,21 +46,25 @@ func DefaultSync(version int64) Sync {
 const Latest = 2
 
 // versionOf reads dot.toml's version, which defaults to 1, and returns the problem with a
-// value that is not a whole number or is newer than this dot.
+// value that is not a whole number, below 1, or newer than this dot.
 func versionOf(raw map[string]any) (int64, string) {
 	v, exists := raw["version"]
 	if !exists {
 		return 1, ""
 	}
 	if n, ok := v.(integer); ok {
-		if !strings.HasPrefix(string(n), "-") {
-			return 0, "version " + string(n) + " is newer than this dot; update dot"
+		text := strings.TrimPrefix(string(n), "+")
+		if strings.HasPrefix(text, "-") {
+			return 0, "version must be 1 or 2"
 		}
-		return 0, ""
+		return 0, "version " + string(n) + " is newer than this dot; update dot"
 	}
 	version, ok := v.(int64)
 	if !ok {
 		return 0, "version must be a whole number"
+	}
+	if version < 1 {
+		return 0, "version must be 1 or 2"
 	}
 	if version > Latest {
 		return 0, fmt.Sprintf("version %d is newer than this dot; update dot", version)
@@ -381,6 +385,9 @@ func Load(paths setup.Paths) (*Config, error) {
 					if !ok {
 						return bad(mp.Label + ": machines must be a list of strings")
 					}
+					if len(mp.Machines) == 0 {
+						return bad(mp.Label + ": machines names no machines; drop the key to manage it everywhere")
+					}
 				}
 				if v, exists := opt["run"]; exists {
 					mp.Run, ok = v.(string)
@@ -411,6 +418,13 @@ func Load(paths setup.Paths) (*Config, error) {
 		}
 		if problem != "" {
 			return bad(problem)
+		}
+		// A rule on a path that is not in the setup matches nothing; it is almost always a
+		// mistake, and silently changing which paths a rule governs is not what the user said.
+		for _, path := range slices.Sorted(maps.Keys(rules)) {
+			if !setup.Exists(filepath.Join(paths.Dot, path)) {
+				return bad("[only] \"" + path + "\" names a path that is not in the setup")
+			}
 		}
 		problem, e := c.discover(rules)
 		if e != nil {

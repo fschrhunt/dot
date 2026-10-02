@@ -31,6 +31,9 @@ func ReadWritten(paths setup.Paths) (map[string]string, error) {
 	}
 	var out map[string]string
 	e = json.Unmarshal(b, &out)
+	if e != nil {
+		return nil, setup.Fail("cannot parse " + paths.Show(filepath.Join(paths.State, "written.json")) + ": " + e.Error() + "; fix it, or delete it and dot will treat nothing on this machine as written by it")
+	}
 	return out, e
 }
 
@@ -152,6 +155,10 @@ func Execute(c *config.Config, p plan.Plan, written map[string]string, opt Optio
 	for _, r := range p.Roots {
 		tops = append(tops, r.Path)
 	}
+	rootSet := map[string]bool{}
+	for _, t := range tops {
+		rootSet[t] = true
+	}
 	for _, q := range plan.Keys(written) {
 		if written[q] == "dir" {
 			if _, ok := p.Wants[q]; !ok {
@@ -236,7 +243,22 @@ func Execute(c *config.Config, p plan.Plan, written map[string]string, opt Optio
 				}
 			case "delete":
 				delete(written, a.Path)
-				prune(a.Path, append(slices.Clone(tops), dropped...), dropped, p.Wants)
+				// Home is the default root: a version 2 home/ folder has no mapping of its own,
+				// so the empty parents of a removed home file would otherwise be left behind.
+				// A recorded dir entry belongs to a mapping root, where the old refusal at the
+				// root wins: do not prune past it.
+				pruneTops := append(slices.Clone(tops), dropped...)
+				mappingRootAbove := false
+				for d := filepath.Dir(a.Path); d != c.Paths.Home && setup.Under(d, c.Paths.Home); d = filepath.Dir(d) {
+					if written[d] == "dir" {
+						mappingRootAbove = true
+						break
+					}
+				}
+				if !mappingRootAbove {
+					pruneTops = append(pruneTops, c.Paths.Home)
+				}
+				prune(a.Path, pruneTops, dropped, p.Wants)
 			}
 		}
 		if e != nil {
@@ -262,9 +284,9 @@ func Execute(c *config.Config, p plan.Plan, written map[string]string, opt Optio
 		if e != nil {
 			return done, refused, e
 		}
-		if (w.Kind != "dir" || slices.Contains(tops, q)) && live == w.Sig {
+		if (w.Kind != "dir" || rootSet[q]) && live == w.Sig {
 			written[q] = w.Sig
-		} else if w.Kind == "dir" && !slices.Contains(tops, q) {
+		} else if w.Kind == "dir" && !rootSet[q] {
 			delete(written, q)
 		}
 	}

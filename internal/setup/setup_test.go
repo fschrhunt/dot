@@ -1,6 +1,8 @@
 package setup_test
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/fschrhunt/dot/internal/setup"
@@ -28,4 +30,17 @@ func TestExcludesUseFnmatch(t *testing.T) {
 	} {
 		testutil.Equal(t, setup.Excluded(c.path, []string{c.pattern}), c.excluded)
 	}
+}
+
+// TestWriteWithZeroModeForNewFiles protects a file creation whose Want carries no mode.
+func TestWriteWithZeroModeForNewFiles(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "new")
+	if e := setup.Write(p, setup.Want{Kind: "file", Data: []byte("x")}); e != nil {
+		t.Fatal(e)
+	}
+	i, e := os.Stat(p)
+	if e != nil {
+		t.Fatal(e)
+	}
+	testutil.Equal(t, i.Mode()&0777, os.FileMode(0644))
 }

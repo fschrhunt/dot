@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -179,6 +180,54 @@ func (s session) rebasing() bool {
 	return false
 }
 
+// protectState keeps dot's bookkeeping out of the shared repository. Sync records written.json,
+// sync.log and friends under .state/; committed, they differ on every machine and fight each
+// other on every rebase. An unignored .state is repaired by adding it to .git/info/exclude
+// (the same place dot init writes for cloned setups), so a hand-made repository is covered
+// too. A .state that is already tracked cannot be repaired quietly, since untracking changes
+// the shared history: sync refuses and names the fix.
+func (s session) protectState() error {
+	r, e := s.git("ls-files", ".state")
+	if e != nil {
+		return e
+	}
+	if strings.TrimSpace(r.out) != "" {
+		return setup.Fail("refused: "+s.p.Show(filepath.Join(s.p.Dot, ".state"))+" is tracked by git, and those bookkeeping files fight every other machine: run git -C "+s.p.Show(s.p.Dot)+" rm -r --cached .state, commit, and sync", 1)
+	}
+	r, e = s.git("check-ignore", ".state/written.json")
+	if e != nil {
+		return e
+	}
+	if r.code == 0 {
+		return nil
+	}
+	dir, e := s.git("rev-parse", "--git-dir")
+	if e != nil {
+		return e
+	}
+	gitDir := strings.TrimSpace(dir.out)
+	if !filepath.IsAbs(gitDir) {
+		gitDir = filepath.Join(s.p.Dot, gitDir)
+	}
+	exclude := filepath.Join(gitDir, "info", "exclude")
+	f, e := os.OpenFile(exclude, os.O_APPEND|os.O_WRONLY, 0666)
+	if e != nil {
+		return setup.Fail("cannot protect dot's state: " + setup.Reason(e))
+	}
+	if _, e = f.WriteString("\n.state/\n"); e == nil {
+		e = f.Close()
+	} else {
+		f.Close()
+	}
+	if e != nil {
+		return e
+	}
+	if r, e = s.git("check-ignore", ".state/written.json"); e != nil || r.code != 0 {
+		return setup.Fail("refused: git does not ignore "+s.p.Show(filepath.Join(s.p.Dot, ".state"))+" (add \".state/\" to "+s.p.Show(exclude)+" or .gitignore)", 1)
+	}
+	return nil
+}
+
 // push sends local commits when the branch is ahead, and returns its note, if any.
 func (s session) push() (note string, ok bool, err error) {
 	r, e := s.git("rev-list", "--count", "@{u}..HEAD")
@@ -263,6 +312,9 @@ func run(p setup.Paths, settled bool) (notes []string, code int, err error) {
 	// The settings come from dot.toml as it is before the pull, which may be about to change it.
 	settings := config.SyncSettings(p)
 	s := open(p, settings)
+	if e := s.protectState(); e != nil {
+		return notes, setup.ExitCode(e), e
+	}
 	opt := apply.Options{Take: settings.Take}
 	if settled {
 		opt.Settle = settle
@@ -359,8 +411,10 @@ func run(p setup.Paths, settled bool) (notes []string, code int, err error) {
 }
 
 // Run skips an already locked sync and writes one compatible log and last-result line. settled
-// is how the timer runs it: a file modified in the last minute is left for the next run.
-func Run(p setup.Paths, settled bool) (int, error) {
+// is how the timer runs it: a file modified in the last minute is left for the next run. On a
+// failing (or refused) run it also writes the notes to errw, one "dot: " line each: a silent
+// non-zero exit is how sync used to lose every explanation it had.
+func Run(p setup.Paths, settled bool, errw io.Writer) (int, error) {
 	if e := os.MkdirAll(p.State, 0777); e != nil {
 		return 2, e
 	}
@@ -379,6 +433,11 @@ func Run(p setup.Paths, settled bool) (int, error) {
 	if e != nil {
 		notes = append(notes, strings.ReplaceAll(e.Error(), "\n", "; "))
 		code = setup.ExitCode(e)
+	}
+	if code != 0 {
+		for _, note := range notes {
+			fmt.Fprintln(errw, "dot: "+note)
+		}
 	}
 	line := time.Now().Format("2006-01-02 15:04:05") + " " + p.Machine + " " + strings.Join(notes, "; ") + "\n"
 	f, e := os.OpenFile(filepath.Join(p.State, "sync.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0666)

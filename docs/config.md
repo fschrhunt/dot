@@ -143,10 +143,12 @@ instructions = "RULES.md"
 limits a path in the setup, and everything under it, to some agents or some machines.
 The path must be under `home/` or `agents/`, and no deeper than one shared unit such as
 `agents/skills/review`. `agents` applies only under `agents/`. An agent name dot does not know
-is an error. A path takes its agents from the nearest rule that names agents and its machines
-from the nearest that names machines, so a rule on one skill keeps the machines a rule on
-`agents/skills` set. A kind's path, such as `instructions = "RULES.md"`, must stay inside the
-agent's folder.
+is an error. Every rule must name at least one agent or machine: an `[only]` that limits a
+path to no agents and no machines would empty every one of its destinations. The path must
+also exist in the setup, so a rule with a typoed path is an error, not a kept file. A path
+takes its agents from the nearest rule that names agents and its machines from the nearest
+that names machines, so a rule on one skill keeps the machines a rule on `agents/skills` set.
+A kind's path, such as `instructions = "RULES.md"`, must stay inside the agent's folder.
 
 ## values
 

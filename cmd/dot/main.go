@@ -37,7 +37,7 @@ func dispatch(args []string, out, stderr io.Writer) (int, error) {
 	case "init":
 		return app.Init(paths, first, out, stderr)
 	case "sync":
-		return dotsync.Run(paths)
+		return dotsync.Run(paths, slices.Contains(args, "--settled"))
 	}
 	c, e := config.Load(paths)
 	if e != nil {

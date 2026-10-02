@@ -18,7 +18,7 @@ import (
 // install writes the default timer and returns the systemd service or the launchd agent.
 func install(t *testing.T, f *testutil.Fixture) string {
 	t.Helper()
-	installWith(t, f, config.DefaultSync())
+	installWith(t, f, config.DefaultSync(1))
 	if runtime.GOOS == "darwin" {
 		return f.Read(f.Paths.Home, "Library/LaunchAgents/com.fschrhunt.dot.plist")
 	}
@@ -56,7 +56,7 @@ func timer(f *testutil.Fixture) string {
 func TestInstallDefaultTimerIsUnchanged(t *testing.T) {
 	f := testutil.New(t)
 	f.Config("", nil)
-	installWith(t, f, config.DefaultSync())
+	installWith(t, f, config.DefaultSync(1))
 	if runtime.GOOS == "darwin" {
 		if !strings.Contains(timer(f), "<key>StartInterval</key><integer>900</integer>") {
 			t.Fatal(timer(f))
@@ -71,7 +71,7 @@ func TestInstallDefaultTimerIsUnchanged(t *testing.T) {
 func TestInstallWritesTheInterval(t *testing.T) {
 	f := testutil.New(t)
 	f.Config("", nil)
-	s := config.DefaultSync()
+	s := config.DefaultSync(1)
 	s.Every, s.AfterBoot = 90*time.Second, 10*time.Second
 	installWith(t, f, s)
 	want := "Description=dot sync every 90 seconds\n\n[Timer]\nOnBootSec=10s\nOnUnitActiveSec=90s\nAccuracySec=6s\n"

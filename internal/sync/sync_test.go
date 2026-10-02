@@ -7,6 +7,7 @@ import (
 	"syscall"
 	"testing"
 
+	dotsync "github.com/fschrhunt/dot/internal/sync"
 	"github.com/fschrhunt/dot/internal/testutil"
 )
 
@@ -145,4 +146,146 @@ func TestSyncStopsGitAtTheTimeout(t *testing.T) {
 	if last := f.Read(f.Paths.State, "last"); !strings.Contains(last, "pull failed: timed out after 1 s; 1 changed") {
 		t.Fatal(last)
 	}
+}
+
+// twoWay seeds a version 2 setup with a remote, applies it, and returns the bare remote.
+func twoWay(t *testing.T, f *testutil.Fixture, mappings string, files map[string]string) string {
+	t.Helper()
+	bare := f.Remote("version = 2\n[files]\n"+mappings, files)
+	testutil.OK(t, f.Sync())
+	return bare
+}
+
+// TestSyncTakesALiveEdit pins the behavior: sync takes a live edit into the setup, commits it under the machine's name and pushes it.
+func TestSyncTakesALiveEdit(t *testing.T) {
+	f := testutil.New(t)
+	bare := twoWay(t, f, "a = \"~/a\"\n", map[string]string{"a": "1\n"})
+	f.Write(f.Paths.Home, map[string]string{"a": "2\n"})
+	if r := f.Status(""); !strings.Contains(r.Output, "< take        ~/a\n") {
+		t.Fatal(r.Output)
+	}
+	testutil.OK(t, f.Sync())
+	testutil.Equal(t, f.Read(f.Paths.Dot, "a"), "2\n")
+	testutil.Equal(t, strings.TrimSpace(f.Git(bare, "log", "-1", "--format=%s")), "laptop: ~/a")
+	if last := f.Read(f.Paths.State, "last"); !strings.Contains(last, "1 taken; 0 changed") {
+		t.Fatal(last)
+	}
+}
+
+// TestSyncCarriesAnEditToTheOtherNames pins the behavior: an edit under one name of a file reaches its other names.
+func TestSyncCarriesAnEditToTheOtherNames(t *testing.T) {
+	f := testutil.New(t)
+	twoWay(t, f, "a = [\"~/CLAUDE.md\", \"~/AGENTS.md\"]\n", map[string]string{"a": "1\n"})
+	f.Write(f.Paths.Home, map[string]string{"AGENTS.md": "2\n"})
+	testutil.OK(t, f.Sync())
+	testutil.Equal(t, f.Read(f.Paths.Home, "CLAUDE.md"), "2\n")
+	testutil.Equal(t, f.Read(f.Paths.Dot, "a"), "2\n")
+}
+
+// TestSyncStopsWhenTwoNamesDiffer pins the behavior: two names of one file edited differently are both left alone and reported.
+func TestSyncStopsWhenTwoNamesDiffer(t *testing.T) {
+	f := testutil.New(t)
+	twoWay(t, f, "a = [\"~/CLAUDE.md\", \"~/AGENTS.md\"]\n", map[string]string{"a": "1\n"})
+	f.Write(f.Paths.Home, map[string]string{"CLAUDE.md": "claude\n", "AGENTS.md": "codex\n"})
+	testutil.Equal(t, f.Sync().Code, 1)
+	testutil.Equal(t, f.Read(f.Paths.Home, "CLAUDE.md")+f.Read(f.Paths.Home, "AGENTS.md")+f.Read(f.Paths.Dot, "a"), "claude\ncodex\n1\n")
+	if last := f.Read(f.Paths.State, "last"); !strings.Contains(last, "not taken: ~/AGENTS.md (edited differently under another of its names") {
+		t.Fatal(last)
+	}
+}
+
+// TestSyncLeavesAFileChangedOnBothSidesAlone pins the behavior: a file edited here whose source also changed is not taken and not overwritten.
+func TestSyncLeavesAFileChangedOnBothSidesAlone(t *testing.T) {
+	f := testutil.New(t)
+	twoWay(t, f, "a = \"~/a\"\n", map[string]string{"a": "1\n"})
+	f.Write(f.Paths.Home, map[string]string{"a": "here\n"})
+	f.Write(f.Paths.Dot, map[string]string{"a": "setup\n"})
+	testutil.Equal(t, f.Sync().Code, 1)
+	testutil.Equal(t, f.Read(f.Paths.Home, "a")+f.Read(f.Paths.Dot, "a"), "here\nsetup\n")
+}
+
+// TestSyncTakesANewFileInAMirroredFolder pins the behavior: a file created in one destination of a folder is taken and written to the others.
+func TestSyncTakesANewFileInAMirroredFolder(t *testing.T) {
+	f := testutil.New(t)
+	twoWay(t, f, "skill = [\"~/.claude/skill\", \"~/.codex/skill\"]\n", map[string]string{"skill/SKILL.md": "1\n"})
+	f.Write(f.Paths.Home, map[string]string{".codex/skill/notes/more.md": "new\n"})
+	testutil.OK(t, f.Sync())
+	testutil.Equal(t, f.Read(f.Paths.Home, ".claude/skill/notes/more.md")+f.Read(f.Paths.Dot, "skill/notes/more.md"), "new\nnew\n")
+}
+
+// TestSyncDoesNotTakeACredential pins the behavior: an edit that adds something shaped like a credential stays out of the setup.
+func TestSyncDoesNotTakeACredential(t *testing.T) {
+	f := testutil.New(t)
+	twoWay(t, f, "a = \"~/a\"\n", map[string]string{"a": "1\n"})
+	f.Write(f.Paths.Home, map[string]string{"a": "1\ntoken = ghp_0123456789abcdefghijklmnopqrstuvwxyz\n"})
+	testutil.Equal(t, f.Sync().Code, 1)
+	testutil.Equal(t, f.Read(f.Paths.Dot, "a"), "1\n")
+	if last := f.Read(f.Paths.State, "last"); !strings.Contains(last, "not taken: ~/a (looks like a credential") {
+		t.Fatal(last)
+	}
+}
+
+// TestSyncRestoresADeletedFile pins the behavior: a deleted live file is restored, never taken as a deletion.
+func TestSyncRestoresADeletedFile(t *testing.T) {
+	f := testutil.New(t)
+	twoWay(t, f, "a = \"~/a\"\n", map[string]string{"a": "1\n"})
+	if e := os.Remove(filepath.Join(f.Paths.Home, "a")); e != nil {
+		t.Fatal(e)
+	}
+	testutil.OK(t, f.Sync())
+	testutil.Equal(t, f.Read(f.Paths.Home, "a")+f.Read(f.Paths.Dot, "a"), "1\n1\n")
+}
+
+// TestSyncRebasesItsTakeOntoTheRemote pins the behavior: a take here and a commit from another machine both survive, in the setup and on the remote.
+func TestSyncRebasesItsTakeOntoTheRemote(t *testing.T) {
+	f := testutil.New(t)
+	bare := twoWay(t, f, "a = \"~/a\"\nb = \"~/b\"\n", map[string]string{"a": "1\n", "b": "1\n"})
+	other := filepath.Join(f.Temp, "other")
+	f.Git(f.Temp, "clone", "-q", bare, other)
+	f.Commit(other, map[string]string{"b": "2\n"}, "desktop: ~/b")
+	f.Git(other, "push", "-q")
+	f.Write(f.Paths.Home, map[string]string{"a": "2\n"})
+	testutil.OK(t, f.Sync())
+	testutil.Equal(t, f.Read(f.Paths.Home, "a")+f.Read(f.Paths.Home, "b"), "2\n2\n")
+	testutil.Equal(t, f.Git(bare, "log", "--format=%s", "-2"), "laptop: ~/a\ndesktop: ~/b\n")
+}
+
+// TestSyncRecordsARebaseConflict pins the behavior: when this machine and the remote changed the same lines, sync undoes the rebase, pushes nothing, keeps the live edit and records the conflict.
+func TestSyncRecordsARebaseConflict(t *testing.T) {
+	f := testutil.New(t)
+	bare := twoWay(t, f, "a = \"~/a\"\n", map[string]string{"a": "1\n"})
+	other := filepath.Join(f.Temp, "other")
+	f.Git(f.Temp, "clone", "-q", bare, other)
+	f.Commit(other, map[string]string{"a": "theirs\n"}, "desktop: ~/a")
+	f.Git(other, "push", "-q")
+	f.Write(f.Paths.Home, map[string]string{"a": "mine\n"})
+	testutil.Equal(t, f.Sync().Code, 1)
+	testutil.Equal(t, f.Read(f.Paths.Home, "a"), "mine\n")
+	testutil.Equal(t, strings.TrimSpace(f.Git(bare, "log", "-1", "--format=%s")), "desktop: ~/a")
+	if !strings.HasPrefix(f.Read(f.Paths.State, "conflict"), "conflict: this machine and the remote changed the same lines") {
+		t.Fatal(f.Read(f.Paths.State, "conflict"))
+	}
+	testutil.Equal(t, strings.TrimSpace(f.Git(f.Paths.Dot, "status", "--porcelain", "--untracked-files=no")), "")
+}
+
+// TestSyncCommitsAnEditMadeInTheSetup pins the behavior: a source edited in the setup itself is committed and applied, not refused.
+func TestSyncCommitsAnEditMadeInTheSetup(t *testing.T) {
+	f := testutil.New(t)
+	bare := twoWay(t, f, "a = \"~/a\"\n", map[string]string{"a": "1\n"})
+	f.Write(f.Paths.Dot, map[string]string{"a": "2\n"})
+	testutil.OK(t, f.Sync())
+	testutil.Equal(t, f.Read(f.Paths.Home, "a"), "2\n")
+	testutil.Equal(t, strings.TrimSpace(f.Git(bare, "log", "-1", "--format=%s")), "laptop: setup edited")
+}
+
+// TestSettledSyncWaitsForAFileToRest pins the behavior: the timer's sync leaves a file edited in the last minute for its next run.
+func TestSettledSyncWaitsForAFileToRest(t *testing.T) {
+	f := testutil.New(t)
+	twoWay(t, f, "a = \"~/a\"\n", map[string]string{"a": "1\n"})
+	f.Write(f.Paths.Home, map[string]string{"a": "2\n"})
+	code, e := dotsync.Run(f.Paths, true)
+	if e != nil || code != 0 {
+		t.Fatal(code, e)
+	}
+	testutil.Equal(t, f.Read(f.Paths.Home, "a")+f.Read(f.Paths.Dot, "a"), "2\n1\n")
 }

@@ -92,16 +92,25 @@ func command(c *config.Config, text string) string {
 	return ""
 }
 
-// Run executes the plan, skips paths related to refused edits, and always saves state.
-// force permits replacing edited paths; it never authorizes following destination symlinks.
-// Afterward it runs each mapping's command whose destinations changed, once and in
-// configuration order: one that ran is appended to done, and one that failed to refused.
-func Run(c *config.Config, force bool) (done, refused []plan.Action, err error) {
+// Options are apply's switches. Force permits replacing edited paths; it never authorizes
+// following destination symlinks. Take and Settle plan two-way, as plan.Options describes.
+// TakeOnly performs just the takes and leaves every live path alone, so sync can commit what it
+// took before it pulls.
+type Options struct {
+	Force, Take, TakeOnly bool
+	Settle                time.Duration
+}
+
+// Run executes the plan, skips paths related to refused edits, and always saves state. A path
+// that changed between the plan and its turn is refused, not replaced. Afterward it runs each
+// mapping's command whose destinations changed, once and in configuration order: one that ran
+// is appended to done, and one that failed to refused.
+func Run(c *config.Config, opt Options) (done, refused []plan.Action, err error) {
 	written, e := ReadWritten(c.Paths)
 	if e != nil {
 		return nil, nil, e
 	}
-	p, e := plan.Build(c, written)
+	p, e := plan.Build(c, written, plan.Options{Take: opt.Take || opt.TakeOnly, Settle: opt.Settle})
 	if e != nil {
 		return nil, nil, e
 	}
@@ -132,9 +141,34 @@ func Run(c *config.Config, force bool) (done, refused []plan.Action, err error) 
 		if skip {
 			continue
 		}
-		if a.Mark == "!" && !force {
+		if a.Op == "take" {
+			if a.Mark == "!" {
+				refused = append(refused, a)
+			} else if e := setup.Write(a.Want.Src, a.Want); e != nil {
+				return done, refused, setup.Fail("cannot take " + c.Paths.Show(a.Path) + ": " + setup.Reason(e))
+			} else {
+				done = append(done, a)
+			}
+			continue
+		}
+		if opt.TakeOnly {
+			continue
+		}
+		if a.Mark == "!" && !opt.Force {
 			refused = append(refused, a)
 			continue
+		}
+		// A folder is exempt: dot's own earlier deletions in this run may have emptied and pruned it.
+		if a.Looked && a.Op != "mkdir" && a.Live != "dir" {
+			now, e := setup.LiveSig(a.Path)
+			if e != nil {
+				return done, refused, e
+			}
+			if now != a.Live {
+				a.Mark, a.Note = "!", "it changed while dot was working; run dot sync again"
+				refused = append(refused, a)
+				continue
+			}
 		}
 		e = nil
 		if a.Op != "write" && (setup.IsLink(a.Path) || setup.Exists(a.Path) && !setup.IsDir(a.Path)) {
@@ -163,15 +197,17 @@ func Run(c *config.Config, force bool) (done, refused []plan.Action, err error) 
 		}
 		done = append(done, a)
 	}
-	for _, d := range dropped {
-		_ = syscall.Rmdir(d)
-		if !setup.IsDir(d) {
-			delete(written, d)
+	if !opt.TakeOnly {
+		for _, d := range dropped {
+			_ = syscall.Rmdir(d)
+			if !setup.IsDir(d) {
+				delete(written, d)
+			}
 		}
-	}
-	for q, s := range written {
-		if _, ok := p.Wants[q]; !ok && s != "dir" && !setup.Exists(q) {
-			delete(written, q)
+		for q, s := range written {
+			if _, ok := p.Wants[q]; !ok && s != "dir" && !setup.Exists(q) {
+				delete(written, q)
+			}
 		}
 	}
 	for q, w := range p.Wants {
@@ -187,7 +223,7 @@ func Run(c *config.Config, force bool) (done, refused []plan.Action, err error) 
 	}
 	changed := slices.Clone(done)
 	for _, h := range p.Hooks {
-		if !plan.Touched(h.Dests, changed) {
+		if opt.TakeOnly || !plan.Touched(h.Dests, changed) {
 			continue
 		}
 		a := plan.Action{Mark: ">", Path: h.Command, Op: "run"}

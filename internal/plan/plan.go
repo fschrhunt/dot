@@ -2,12 +2,15 @@
 package plan
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/fschrhunt/dot/internal/config"
 	"github.com/fschrhunt/dot/internal/setup"
@@ -21,11 +24,23 @@ type Root struct {
 }
 
 // Action describes a change; an empty Op is informational and must not mutate files.
-// A run action's Path is its command, and Note says why a refused one failed.
+// A take copies the live file at Path into the setup at Want.Src. A run action's Path is its
+// command. Note says why a refused action was refused. Live is the path's signature when the
+// plan looked at it, kept only when Looked, so apply can refuse a path that changed since.
 type Action struct {
 	Mark, Path, Op string
 	Want           setup.Want
-	Note           string
+	Note, Live     string
+	Looked         bool
+}
+
+// Options says how far a plan may go. With Take, an edit to a live file whose source has not
+// changed is planned as a take into the setup, and a new file in a mirrored folder as an
+// addition; without it the plan is one-way, as apply needs. Settle holds back a file modified
+// more recently than that, so the timer does not take a file still being written.
+type Options struct {
+	Take   bool
+	Settle time.Duration
 }
 
 // Hook is a mapping's run command and the destinations whose changes trigger it.
@@ -46,7 +61,7 @@ type Plan struct {
 func Touched(dests []string, actions []Action) bool {
 	for _, a := range actions {
 		for _, d := range dests {
-			if a.Op != "" && a.Op != "run" && (a.Path == d || setup.Under(a.Path, d)) {
+			if a.Op != "" && a.Op != "run" && a.Op != "take" && (a.Path == d || setup.Under(a.Path, d)) {
 				return true
 			}
 		}
@@ -159,8 +174,82 @@ func Keys[V any](m map[string]V) []string {
 	return keys
 }
 
-// Build orders deletions before writes, protecting edited paths and honoring exclusions.
-func Build(c *config.Config, written map[string]string) (Plan, error) {
+// credentials are the shapes dot will not take into a setup on its own: private key blocks and
+// the common token prefixes. The check is best effort; it is a seat belt, not a scanner.
+var credentials = regexp.MustCompile(`-----BEGIN [A-Z ]*PRIVATE KEY-----|\b(?:sk|rk)-[A-Za-z0-9_-]{20,}|\bsk_(?:live|test)_[A-Za-z0-9]{16,}|\bgh[pousr]_[A-Za-z0-9]{30,}|\bgithub_pat_[A-Za-z0-9_]{30,}|\bAKIA[0-9A-Z]{16}\b|\bxox[baprs]-[A-Za-z0-9-]{10,}|\bAIza[0-9A-Za-z_-]{35}\b|\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}`)
+
+// Secret reports whether edited adds a line that looks like a credential and that base lacks.
+func Secret(base, edited []byte) bool {
+	known := map[string]bool{}
+	for _, line := range bytes.Split(base, []byte("\n")) {
+		known[string(line)] = true
+	}
+	for _, line := range bytes.Split(edited, []byte("\n")) {
+		if !known[string(line)] && credentials.Match(line) {
+			return true
+		}
+	}
+	return false
+}
+
+// found is a live regular file a take could copy into the setup.
+type found struct {
+	path, sig string
+	data      []byte
+	mode      os.FileMode
+	fresh     bool
+}
+
+// look reads a live path for a take. ok is false for anything but a regular file.
+func look(q string, settle time.Duration) (found, bool, error) {
+	i, e := os.Lstat(q)
+	if e != nil || !i.Mode().IsRegular() {
+		return found{}, false, nil
+	}
+	data, e := os.ReadFile(q)
+	if e != nil {
+		return found{}, false, e
+	}
+	mode := i.Mode() & (os.ModePerm | os.ModeSetuid | os.ModeSetgid | os.ModeSticky)
+	return found{q, setup.Hash(data), data, mode, settle > 0 && time.Since(i.ModTime()) < settle}, true, nil
+}
+
+// take decides one group of live files that would all become the same source file. They are
+// taken when they agree, have settled, and add nothing that looks like a credential; then every
+// destination of that source wants the taken bytes. Otherwise each is held back: quietly when it
+// is only unsettled, and as a refused take with its reason when it needs the user.
+func take(p *Plan, src string, base []byte, group []found, dests []string, held map[string]bool) {
+	first := group[0]
+	note := ""
+	if slices.ContainsFunc(group, func(f found) bool { return f.sig != first.sig }) {
+		note = "edited differently under another of its names"
+	} else if Secret(base, first.data) {
+		note = "looks like a credential"
+	}
+	for _, f := range group {
+		if note != "" {
+			held[f.path] = true
+			p.Actions = append(p.Actions, Action{Mark: "!", Path: f.path, Op: "take", Note: note})
+		} else if f.fresh {
+			held[f.path] = true
+		}
+	}
+	if note != "" || slices.ContainsFunc(group, func(f found) bool { return f.fresh }) {
+		return
+	}
+	w := setup.Want{Kind: "file", Data: first.data, Mode: first.mode, Sig: first.sig, Src: src}
+	p.Actions = append(p.Actions, Action{Mark: "<", Path: first.path, Op: "take", Want: w})
+	for _, d := range dests {
+		if old, ok := p.Wants[d]; ok {
+			w.Mode = old.Mode
+		}
+		p.Wants[d] = w
+	}
+}
+
+// Build orders takes, then deletions, then writes, protecting edited paths and honoring
+// exclusions. opt says whether live edits may be taken; see Options.
+func Build(c *config.Config, written map[string]string, opt Options) (Plan, error) {
 	want, roots, hooks, e := Wants(c)
 	p := Plan{Wants: want, Roots: roots, Hooks: hooks}
 	if e != nil {
@@ -173,6 +262,34 @@ func Build(c *config.Config, written map[string]string) (Plan, error) {
 	for q, s := range written {
 		if s == "dir" {
 			tops = append(tops, q)
+		}
+	}
+	// held are live paths this plan leaves alone: an edit or addition that is not taken yet.
+	held := map[string]bool{}
+	if opt.Take {
+		// An edit: the live file differs from what dot wrote, and the source still is what dot wrote.
+		bySource := map[string][]string{}
+		for _, q := range Keys(want) {
+			bySource[want[q].Src] = append(bySource[want[q].Src], q)
+		}
+		for _, src := range Keys(bySource) {
+			var group []found
+			for _, q := range bySource[src] {
+				w := want[q]
+				if w.Kind != "file" || w.Template || written[q] != w.Sig || ViaLink(q, tops) {
+					continue
+				}
+				f, ok, e := look(q, opt.Settle)
+				if e != nil {
+					return p, e
+				}
+				if ok && f.sig != w.Sig {
+					group = append(group, f)
+				}
+			}
+			if len(group) > 0 {
+				take(&p, src, want[bySource[src][0]].Data, group, bySource[src], held)
+			}
 		}
 	}
 	for _, q := range Keys(written) {
@@ -198,9 +315,19 @@ func Build(c *config.Config, written map[string]string) (Plan, error) {
 			if live == s {
 				mark = "-"
 			}
-			p.Actions = append(p.Actions, Action{Mark: mark, Path: q, Op: "delete"})
+			p.Actions = append(p.Actions, Action{Mark: mark, Path: q, Op: "delete", Live: live, Looked: true})
 		}
 	}
+	// A file in a mirrored folder that dot neither wants nor wrote is an addition when taking,
+	// and otherwise an extra to remove. Additions are gathered by the source file they would
+	// become, since several destinations of one folder can each hold the new file.
+	type addition struct {
+		source string
+		files  []found
+		dests  []string
+	}
+	var additions []*addition
+	bySource := map[string]*addition{}
 	for _, r := range roots {
 		if !setup.IsDir(r.Path) || setup.IsLink(r.Path) {
 			continue
@@ -212,14 +339,43 @@ func Build(c *config.Config, written map[string]string) (Plan, error) {
 				_, wanted := want[q]
 				_, recorded := written[q]
 				rel, _ := filepath.Rel(r.Path, q)
-				if !wanted && !recorded && !setup.Excluded(rel, r.Exclude) {
-					a := Action{Mark: "?", Path: q}
-					if r.Mirror {
-						a.Mark = "-"
-						a.Op = "delete"
-					}
-					p.Actions = append(p.Actions, a)
+				if wanted || recorded || setup.Excluded(rel, r.Exclude) {
+					continue
 				}
+				if !r.Mirror {
+					p.Actions = append(p.Actions, Action{Mark: "?", Path: q})
+					continue
+				}
+				if !opt.Take {
+					live, e := setup.LiveSig(q)
+					if e != nil {
+						return e
+					}
+					p.Actions = append(p.Actions, Action{Mark: "-", Path: q, Op: "delete", Live: live, Looked: true})
+					continue
+				}
+				file, ok, e := look(q, opt.Settle)
+				if e != nil {
+					return e
+				}
+				if !ok {
+					held[q] = true
+					p.Actions = append(p.Actions, Action{Mark: "!", Path: q, Op: "take", Note: "not a regular file"})
+					continue
+				}
+				source := filepath.Join(r.Source, rel)
+				a := bySource[source]
+				if a == nil {
+					a = &addition{source: source}
+					bySource[source] = a
+					additions = append(additions, a)
+					for _, other := range roots {
+						if other.Source == r.Source {
+							a.dests = append(a.dests, filepath.Join(other.Path, rel))
+						}
+					}
+				}
+				a.files = append(a.files, file)
 			}
 			return nil
 		})
@@ -227,10 +383,17 @@ func Build(c *config.Config, written map[string]string) (Plan, error) {
 			return p, e
 		}
 	}
-	for _, q := range Keys(want) {
-		w := want[q]
+	for _, a := range additions {
+		take(&p, a.source, nil, a.files, a.dests, held)
+	}
+	for _, q := range Keys(p.Wants) {
+		w := p.Wants[q]
+		if held[q] {
+			continue
+		}
 		live := ""
-		if !ViaLink(q, tops) {
+		looked := !ViaLink(q, tops)
+		if looked {
 			live, e = setup.LiveSig(q)
 			if e != nil {
 				return p, e
@@ -258,7 +421,7 @@ func Build(c *config.Config, written map[string]string) (Plan, error) {
 		if w.Kind == "dir" {
 			op = "mkdir"
 		}
-		p.Actions = append(p.Actions, Action{Mark: mark, Path: q, Op: op, Want: w})
+		p.Actions = append(p.Actions, Action{Mark: mark, Path: q, Op: op, Want: w, Live: live, Looked: looked})
 	}
 	// Name each command a plain apply would run: one whose mapping has a change that is not an
 	// edit apply refuses. These lines are informational; apply decides from what it really did.
@@ -278,7 +441,7 @@ func Build(c *config.Config, written map[string]string) (Plan, error) {
 
 // Print writes the exact plan labels, with a trailing slash for directory creations.
 func Print(out io.Writer, paths setup.Paths, actions []Action) {
-	labels := map[string]string{"+": "new", "~": "changed", "-": "removed", "!": "edited here", "?": "extra", ">": "run"}
+	labels := map[string]string{"+": "new", "~": "changed", "-": "removed", "!": "edited here", "?": "extra", ">": "run", "<": "take"}
 	for _, a := range actions {
 		suffix := ""
 		if a.Op == "mkdir" {
@@ -298,6 +461,12 @@ func Refusal(paths setup.Paths, a Action) string {
 		return "run failed: " + a.Path + " (" + a.Note + ")"
 	}
 	q, op := paths.Show(a.Path), a.Op
+	if op == "take" {
+		return "not taken: " + q + " (" + a.Note + "; dot take " + q + " takes it anyway)"
+	}
+	if a.Note != "" {
+		return "edited here: " + q + " (" + a.Note + ")"
+	}
 	if op == "delete" {
 		return "edited here: " + q + " (no longer in the setup; delete it, or dot apply --force)"
 	}

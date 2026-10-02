@@ -92,101 +92,247 @@ func lastLine(s string) string {
 	return lines[len(lines)-1]
 }
 
-// run performs sync while holding the lock. A failed pull or push is noted and the local setup is
-// still applied, so an offline machine keeps working, but the sync exits 1 so the failure shows.
-func run(p setup.Paths) (notes []string, code int, err error) {
-	failed := false
-	if !setup.IsDir(filepath.Join(p.Dot, ".git")) {
-		return notes, 2, setup.Fail(p.Show(p.Dot) + " is not a git repo")
-	}
-	// The settings come from dot.toml as it is before the pull, which may be about to change it.
-	s := open(p, config.SyncSettings(p))
-	r, e := s.git("status", "--porcelain", "--untracked-files=no")
-	if e != nil {
-		return notes, 2, e
-	}
-	if strings.TrimSpace(r.out) != "" {
-		return notes, 1, setup.Fail("refused: uncommitted changes in "+p.Show(p.Dot)+" (commit or discard them)", 1)
-	}
-	r, e = s.git("rev-parse", "--abbrev-ref", "@{u}")
-	if e != nil {
-		return notes, 2, e
-	}
-	upstream := r.code == 0
-	if !upstream {
-		notes = append(notes, "no upstream")
-	} else {
-		head, e := s.git("rev-parse", "HEAD")
-		if e != nil {
-			return notes, 2, e
-		}
-		r, e = s.git("pull", "--ff-only", "--quiet")
-		if e != nil {
-			return notes, 2, e
-		}
-		if r.code != 0 {
-			notes = append(notes, "pull failed: "+lastLine(r.err))
-			failed = true
-		} else {
-			now, e := s.git("rev-parse", "HEAD")
-			if e != nil {
-				return notes, 2, e
-			}
-			note := "up to date"
-			if now.out != head.out {
-				note = "pulled"
-			}
-			notes = append(notes, note)
-		}
-	}
-	c, e := config.Load(p)
-	if e != nil {
-		return notes, setup.ExitCode(e), e
-	}
-	if upstream && c.Push {
-		r, e = s.git("rev-list", "--count", "@{u}..HEAD")
-		if e != nil {
-			return notes, 2, e
-		}
-		n := strings.TrimSpace(r.out)
-		if n != "" && n != "0" {
-			r, e = s.git("push", "--quiet")
-			if e != nil {
-				return notes, 2, e
-			}
-			note := "pushed"
-			if r.code != 0 {
-				note = "push failed: " + lastLine(r.err)
-				failed = true
-			}
-			notes = append(notes, note)
-		}
-	}
-	done, refused, e := apply.Run(c, false)
-	if e != nil {
-		return notes, setup.ExitCode(e), e
-	}
-	ran := 0
+// settle is how long a file must have been left alone before the timer takes it.
+const settle = time.Minute
+
+// tally turns what sync took, did and refused into the log's notes, and reports whether
+// anything was refused. took counts the takes made before the pull; any in done came after.
+func tally(p setup.Paths, took int, done, refused []plan.Action) (notes []string, stopped bool) {
+	ran, late := 0, 0
 	for _, a := range done {
-		if a.Op == "run" {
+		switch a.Op {
+		case "run":
 			ran++
+		case "take":
+			late++
 		}
 	}
-	notes = append(notes, fmt.Sprintf("%d changed", len(done)-ran))
+	if took+late > 0 {
+		notes = append(notes, fmt.Sprintf("%d taken", took+late))
+	}
+	notes = append(notes, fmt.Sprintf("%d changed", len(done)-ran-late))
 	if ran > 0 {
 		notes = append(notes, fmt.Sprintf("%d ran", ran))
 	}
 	for _, a := range refused {
 		notes = append(notes, plan.Refusal(p, a))
 	}
-	if len(refused) > 0 || failed {
+	return notes, len(refused) > 0
+}
+
+// pull brings the remote's commits in and reports whether it could, with its note. Two-way sync
+// rebases, so commits dot made here sit on top of the remote's; a rebase that conflicts is undone
+// and recorded in .state/conflict until a later pull succeeds. One-way sync only fast-forwards.
+func (s session) pull(rebase bool) (note string, ok bool, err error) {
+	before, e := s.git("rev-parse", "@{u}")
+	if e != nil {
+		return "", false, e
+	}
+	head, e := s.git("rev-parse", "HEAD")
+	if e != nil {
+		return "", false, e
+	}
+	how := "--ff-only"
+	if rebase {
+		how = "--rebase"
+	}
+	r, e := s.git("pull", how, "--quiet")
+	if e != nil {
+		return "", false, e
+	}
+	marker := filepath.Join(s.p.State, "conflict")
+	if r.code != 0 {
+		if rebase && s.rebasing() {
+			if _, e := s.git("rebase", "--abort"); e != nil {
+				return "", false, e
+			}
+			note = "conflict: this machine and the remote changed the same lines; in " + s.p.Show(s.p.Dot) + " run git pull --rebase, fix the files it names, git rebase --continue, then dot sync"
+			return note, false, os.WriteFile(marker, []byte(note+"\n"), 0666)
+		}
+		return "pull failed: " + lastLine(r.err), false, nil
+	}
+	if e := os.Remove(marker); e != nil && !os.IsNotExist(e) {
+		return "", false, e
+	}
+	after, e := s.git("rev-parse", "@{u}")
+	if e != nil {
+		return "", false, e
+	}
+	now, e := s.git("rev-parse", "HEAD")
+	if e != nil {
+		return "", false, e
+	}
+	if after.out != before.out || now.out != head.out {
+		return "pulled", true, nil
+	}
+	return "up to date", true, nil
+}
+
+// rebasing reports whether git left a rebase unfinished in the setup.
+func (s session) rebasing() bool {
+	for _, name := range []string{"rebase-merge", "rebase-apply"} {
+		if setup.IsDir(filepath.Join(s.p.Dot, ".git", name)) {
+			return true
+		}
+	}
+	return false
+}
+
+// push sends local commits when the branch is ahead, and returns its note, if any.
+func (s session) push() (note string, ok bool, err error) {
+	r, e := s.git("rev-list", "--count", "@{u}..HEAD")
+	if e != nil {
+		return "", false, e
+	}
+	if n := strings.TrimSpace(r.out); n == "" || n == "0" {
+		return "", true, nil
+	}
+	r, e = s.git("push", "--quiet")
+	if e != nil {
+		return "", false, e
+	}
+	if r.code != 0 {
+		return "push failed: " + lastLine(r.err), false, nil
+	}
+	return "pushed", true, nil
+}
+
+// commit records everything changed in the setup as one commit named for the machine and the
+// live paths taken, and reports whether there was anything to record. A machine with no git
+// identity commits as dot.
+func (s session) commit(taken []plan.Action) (bool, error) {
+	if r, e := s.git("add", "--all"); e != nil || r.code != 0 {
+		return false, orFail(e, "git add failed: "+lastLine(r.err))
+	}
+	r, e := s.git("diff", "--cached", "--quiet")
+	if e != nil || r.code == 0 {
+		return false, e
+	}
+	what := "setup edited"
+	if len(taken) > 0 {
+		var shown []string
+		for _, a := range taken {
+			shown = append(shown, s.p.Show(a.Path))
+		}
+		if len(shown) > 3 {
+			shown = append(shown[:3], fmt.Sprintf("and %d more", len(shown)-3))
+		}
+		what = strings.Join(shown, ", ")
+	}
+	args := []string{"commit", "--quiet", "--message", s.p.Machine + ": " + what}
+	if r, e := s.git("config", "user.email"); e != nil {
+		return false, e
+	} else if r.code != 0 {
+		args = append([]string{"-c", "user.name=dot", "-c", "user.email=dot@" + s.p.Machine}, args...)
+	}
+	if r, e = s.git(args...); e != nil || r.code != 0 {
+		return false, orFail(e, "git commit failed: "+lastLine(r.err))
+	}
+	return true, nil
+}
+
+// orFail keeps a real error, and otherwise makes a user-facing one from text.
+func orFail(e error, text string) error {
+	if e != nil {
+		return e
+	}
+	return setup.Fail(text)
+}
+
+// run performs sync while holding the lock. A failed pull or push is noted and the local setup is
+// still applied, so an offline machine keeps working, but the sync exits 1 so the failure shows.
+// A setup that takes (version 2) syncs both ways: live edits are taken and committed, the remote
+// is rebased under them, the result is pushed, and then the setup is applied. settled holds back
+// files modified in the last minute, for the timer.
+func run(p setup.Paths, settled bool) (notes []string, code int, err error) {
+	failed := false
+	if !setup.IsDir(filepath.Join(p.Dot, ".git")) {
+		return notes, 2, setup.Fail(p.Show(p.Dot) + " is not a git repo")
+	}
+	// The settings come from dot.toml as it is before the pull, which may be about to change it.
+	settings := config.SyncSettings(p)
+	s := open(p, settings)
+	opt := apply.Options{Take: settings.Take}
+	if settled {
+		opt.Settle = settle
+	}
+	taken := 0
+	if settings.Take {
+		if s.rebasing() {
+			if _, e := s.git("rebase", "--abort"); e != nil {
+				return notes, 2, e
+			}
+		}
+		// A setup that does not load yet may be fixed by the pull; its edits wait for the next run.
+		var took []plan.Action
+		if c, e := config.Load(p); e == nil {
+			o := opt
+			o.TakeOnly = true
+			if took, _, e = apply.Run(c, o); e != nil {
+				return notes, setup.ExitCode(e), e
+			}
+		}
+		taken = len(took)
+		if _, e := s.commit(took); e != nil {
+			return notes, setup.ExitCode(e), e
+		}
+	} else {
+		r, e := s.git("status", "--porcelain", "--untracked-files=no")
+		if e != nil {
+			return notes, 2, e
+		}
+		if strings.TrimSpace(r.out) != "" {
+			return notes, 1, setup.Fail("refused: uncommitted changes in "+p.Show(p.Dot)+" (commit or discard them)", 1)
+		}
+	}
+	r, e := s.git("rev-parse", "--abbrev-ref", "@{u}")
+	if e != nil {
+		return notes, 2, e
+	}
+	upstream := r.code == 0
+	pulled := false
+	if !upstream {
+		notes = append(notes, "no upstream")
+	} else {
+		note, ok, e := s.pull(settings.Take)
+		if e != nil {
+			return notes, 2, e
+		}
+		notes = append(notes, note)
+		pulled = ok
+		failed = !ok
+	}
+	c, e := config.Load(p)
+	if e != nil {
+		return notes, setup.ExitCode(e), e
+	}
+	// Nothing is pushed over a pull that failed: the remote has commits this machine lacks.
+	if upstream && c.Push && (pulled || !settings.Take) {
+		note, ok, e := s.push()
+		if e != nil {
+			return notes, 2, e
+		}
+		if note != "" {
+			notes = append(notes, note)
+		}
+		failed = failed || !ok
+	}
+	opt.Take = c.Take
+	done, refused, e := apply.Run(c, opt)
+	if e != nil {
+		return notes, setup.ExitCode(e), e
+	}
+	more, stopped := tally(p, taken, done, refused)
+	notes = append(notes, more...)
+	if stopped || failed {
 		code = 1
 	}
 	return notes, code, nil
 }
 
-// Run skips an already locked sync and writes one compatible log and last-result line.
-func Run(p setup.Paths) (int, error) {
+// Run skips an already locked sync and writes one compatible log and last-result line. settled
+// is how the timer runs it: a file modified in the last minute is left for the next run.
+func Run(p setup.Paths, settled bool) (int, error) {
 	if e := os.MkdirAll(p.State, 0777); e != nil {
 		return 2, e
 	}
@@ -201,7 +347,7 @@ func Run(p setup.Paths) (int, error) {
 		}
 		return 2, e
 	}
-	notes, code, e := run(p)
+	notes, code, e := run(p, settled)
 	if e != nil {
 		notes = append(notes, strings.ReplaceAll(e.Error(), "\n", "; "))
 		code = setup.ExitCode(e)

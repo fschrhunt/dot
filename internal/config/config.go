@@ -26,22 +26,51 @@ type Mapping struct {
 }
 
 // Sync holds this machine's [sync] settings, after its [sync.machine.<name>] overrides.
-// Every is the timer's interval and AfterBoot the wait before its first run after boot on Linux. Timeout stops
-// each git command and each mapping's run command; ConnectTimeout is given to ssh. Durations
-// are whole seconds.
+// Take makes sync two-way: an edit to a live file is taken into the setup and committed. Push
+// sends local commits to the remote. Every is the timer's interval and AfterBoot the wait before
+// its first run after boot on Linux. Timeout stops each git command and each mapping's run
+// command; ConnectTimeout is given to ssh. Durations are whole seconds.
 type Sync struct {
-	Push                                      bool
+	Take, Push                                bool
 	Every, AfterBoot, Timeout, ConnectTimeout time.Duration
 }
 
-// DefaultSync returns the settings dot uses when dot.toml sets none.
-func DefaultSync() Sync {
-	return Sync{Every: 15 * time.Minute, AfterBoot: 2 * time.Minute, Timeout: time.Minute, ConnectTimeout: 5 * time.Second}
+// DefaultSync returns the settings dot uses when dot.toml sets none. A version 2 setup syncs
+// both ways and pushes; a version 1 setup keeps the one-way sync it was written for.
+func DefaultSync(version int64) Sync {
+	return Sync{Take: version >= 2, Push: version >= 2, Every: 15 * time.Minute, AfterBoot: 2 * time.Minute, Timeout: time.Minute, ConnectTimeout: 5 * time.Second}
+}
+
+// Latest is the newest dot.toml version this dot reads.
+const Latest = 2
+
+// versionOf reads dot.toml's version, which defaults to 1, and returns the problem with a
+// value that is not a whole number or is newer than this dot.
+func versionOf(raw map[string]any) (int64, string) {
+	v, exists := raw["version"]
+	if !exists {
+		return 1, ""
+	}
+	if n, ok := v.(integer); ok {
+		if !strings.HasPrefix(string(n), "-") {
+			return 0, "version " + string(n) + " is newer than this dot; update dot"
+		}
+		return 0, ""
+	}
+	version, ok := v.(int64)
+	if !ok {
+		return 0, "version must be a whole number"
+	}
+	if version > Latest {
+		return 0, fmt.Sprintf("version %d is newer than this dot; update dot", version)
+	}
+	return version, ""
 }
 
 // Config is a validated setup; Names and MachineNames preserve TOML order for help output.
 type Config struct {
 	Paths   setup.Paths
+	Version int64
 	Exclude []string
 	Sync
 	Values              map[string]string
@@ -160,12 +189,17 @@ func scalars(v any) (map[string]string, bool) {
 
 // setSync applies one table of sync settings to s and returns the first bad value's problem.
 func setSync(s *Sync, t map[string]any, where string) string {
-	if v, exists := t["push"]; exists {
-		push, ok := v.(bool)
-		if !ok {
-			return where + " push must be true or false"
+	for _, f := range []struct {
+		key string
+		to  *bool
+	}{{"push", &s.Push}, {"take", &s.Take}} {
+		if v, exists := t[f.key]; exists {
+			on, ok := v.(bool)
+			if !ok {
+				return where + " " + f.key + " must be true or false"
+			}
+			*f.to = on
 		}
-		s.Push = push
 	}
 	for _, f := range []struct {
 		key  string
@@ -188,8 +222,8 @@ func setSync(s *Sync, t map[string]any, where string) string {
 
 // syncFor reads [sync] and then machine's [sync.machine.<name>] table over it. Every machine's
 // table is checked, so a mistake in one shows on all of them.
-func syncFor(raw map[string]any, machine string) (Sync, string) {
-	base := DefaultSync()
+func syncFor(raw map[string]any, machine string, version int64) (Sync, string) {
+	base := DefaultSync(version)
 	t, ok := table(raw["sync"])
 	if !ok {
 		return base, "[sync] push must be true or false"
@@ -229,11 +263,15 @@ func SyncSettings(paths setup.Paths) Sync {
 		_, e = decode(string(source), &raw)
 	}
 	if e != nil {
-		return DefaultSync()
+		return DefaultSync(1)
 	}
-	s, problem := syncFor(raw, paths.Machine)
+	version, problem := versionOf(raw)
 	if problem != "" {
-		return DefaultSync()
+		return DefaultSync(1)
+	}
+	s, problem := syncFor(raw, paths.Machine, version)
+	if problem != "" {
+		return DefaultSync(version)
 	}
 	return s
 }
@@ -254,32 +292,17 @@ func Load(paths setup.Paths) (*Config, error) {
 		return nil, setup.Fail("dot.toml: " + syntaxError(string(source), err))
 	}
 	bad := func(s string) (*Config, error) { return nil, setup.Fail("dot.toml: " + s) }
-	version := int64(1)
-	if v, ok := raw["version"]; ok {
-		var yes bool
-		version, yes = v.(int64)
-		if n, ok := v.(integer); ok {
-			if !strings.HasPrefix(string(n), "-") {
-				return bad("version " + string(n) + " is newer than this dot; update dot")
-			}
-			version = 0
-			yes = true
-		}
-		if !yes {
-			return bad("version must be a whole number")
-		}
+	version, problem := versionOf(raw)
+	if problem != "" {
+		return bad(problem)
 	}
-	if version > 1 {
-		return bad(fmt.Sprintf("version %d is newer than this dot; update dot", version))
-	}
-	c := &Config{Paths: paths, Machines: map[string]map[string]string{}}
+	c := &Config{Paths: paths, Version: version, Machines: map[string]map[string]string{}}
 	var ok bool
 	c.Exclude, ok = stringsOf(raw["exclude"])
 	if !ok {
 		return bad("exclude must be a list of strings")
 	}
-	var problem string
-	if c.Sync, problem = syncFor(raw, paths.Machine); problem != "" {
+	if c.Sync, problem = syncFor(raw, paths.Machine, version); problem != "" {
 		return bad(problem)
 	}
 	c.Values, ok = scalars(raw["values"])

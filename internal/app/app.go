@@ -42,7 +42,7 @@ func Status(c *config.Config, path string, out io.Writer) (int, error) {
 	if e != nil {
 		return 2, e
 	}
-	p, e := plan.Build(c, written)
+	p, e := plan.Build(c, written, plan.Options{Take: c.Take})
 	if e != nil {
 		return 2, e
 	}
@@ -101,14 +101,14 @@ func Apply(c *config.Config, dry, force bool, out, stderr io.Writer) (int, error
 		if e != nil {
 			return 2, e
 		}
-		p, e := plan.Build(c, written)
+		p, e := plan.Build(c, written, plan.Options{})
 		if e != nil {
 			return 2, e
 		}
 		plan.Print(out, c.Paths, p.Actions)
 		return 0, nil
 	}
-	done, refused, e := apply.Run(c, force)
+	done, refused, e := apply.Run(c, apply.Options{Force: force})
 	if e != nil {
 		return 2, e
 	}

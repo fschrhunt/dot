@@ -163,8 +163,15 @@ func Excluded(rel string, patterns []string) bool {
 	return false
 }
 
+// globs keeps each pattern's compiled form, since a walk matches the same few patterns against
+// every path segment. A nil entry is a pattern that does not compile and so matches nothing.
+var globs = map[string]*regexp.Regexp{}
+
 // glob implements fnmatch's shell patterns without treating backslashes as escapes.
 func glob(pat, s string) bool {
+	if r, ok := globs[pat]; ok {
+		return r != nil && r.MatchString(s)
+	}
 	var b strings.Builder
 	b.WriteString("(?s)^")
 	for i := 0; i < len(pat); i++ {
@@ -202,8 +209,9 @@ func glob(pat, s string) bool {
 		}
 	}
 	b.WriteByte('$')
-	r, e := regexp.Compile(b.String())
-	return e == nil && r.MatchString(s)
+	r, _ := regexp.Compile(b.String())
+	globs[pat] = r
+	return r != nil && r.MatchString(s)
 }
 
 // Hash returns the state-compatible SHA256 digest of bytes.

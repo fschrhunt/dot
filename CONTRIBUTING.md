@@ -27,6 +27,17 @@ for the code map and compatibility conventions.
 
 Never run apply, sync or timer against your real home during development.
 
+## Releases
+
+`scripts/release.sh vX.Y.Z` releases in two runs: first it opens a PR naming CHANGELOG.md's
+Unreleased section, then, once that merges and CI passes on main, it tags. The tag builds the
+archives with provenance, publishes the release with that section as its notes, updates the
+Homebrew formula (`scripts/formula.sh`), and installs the release for real on both systems.
+
+Only the `formula` job writes to main. It runs in the `release` environment, which only `v*`
+tags can use, and pushes with that environment's `RELEASE_DEPLOY_KEY` secret: a deploy key that
+main's ruleset lets past its pull request rule. Nothing else in the repository can.
+
 ## Issues
 
 Include `dot version` and `dot help` output. Remove anything private first.

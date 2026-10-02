@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Install with `curl -fsSL https://fschrhunt.com/dot/install.sh | sh` (checksum-verified, into
+  `~/.local/bin`) or Homebrew, from dot's own repository: `brew tap fschrhunt/dot
+  https://github.com/fschrhunt/dot && brew install dot`.
+- Releases carry build provenance (`gh attestation verify`), run CI's checks and `govulncheck`
+  first, and are installed for real on macOS and Linux. `scripts/release.sh` releases in two runs.
 - Fixed: `dot sync` no longer commits or pushes `.state/`. A setup that does not ignore it gets
   the rule added to `.git/info/exclude`, and one where `.state/` is already tracked is refused
   with the way out named, instead of fighting every other machine's pull.

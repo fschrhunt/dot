@@ -28,7 +28,7 @@ fail() { echo "smoke: FAIL: $*" >&2; exit 1; }
 expect() { # expect <name> <grep-pattern> <actual-output>
     case "$3" in
         *"$2"*) ;;
-        *) fail "$1: expected output to contain '$2', got:"$(printf '\n%s\n' "$3");;
+        *) got=$(printf '\n%s\n' "$3"); fail "$1: expected output to contain '$2', got:$got" ;;
     esac
 }
 
@@ -50,7 +50,7 @@ expect "help explains the setup" 'home/.config/gitconfig' "$("$bin" help)"
 
 "$bin" sync > /dev/null || fail "first sync failed"
 expect "sync works upstream-less" "no upstream" "$(tail -1 "$DOT_HOME/.state/last")"
-[ -f "$HOME/.codex/AGENTS.md" ] || fail "~/.codex/AGENTS.md was never written"
+[ -f "$HOME/.codex/AGENTS.md" ] || fail "AGENTS.md for the second agent missing after add"
 [ -f "$HOME/.codex/skills/review/SKILL.md" ] || fail "the skill never reached codex"
 tracked=$(git -C "$DOT_HOME" ls-files | grep -c '^\.state/' || true)
 [ "$tracked" = 0 ] || fail "dot committed its own .state"

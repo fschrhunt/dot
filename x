@@ -5,7 +5,7 @@ set -eu
 cd "$(dirname "$0")"
 
 usage() {
-    echo "usage: ./x [check|fmt|lint|build|test|smoke|guard|hooks|links|release-check]" >&2
+    echo "usage: ./x [check|fmt|lint|build|test|smoke|guard|audit|hooks|links|release-check]" >&2
     exit 2
 }
 
@@ -37,6 +37,10 @@ case "$command" in
     test) go test ./... "$@" ;;
     smoke) scripts/smoke.sh ;;
     guard) scripts/guard.sh ;;
+    audit)
+        # Needs the network for the vulnerability database; CI and releases run it, not pre-commit.
+        go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
+        ;;
     hooks)
         git config core.hooksPath .githooks
         printf 'git hooks installed: pre-commit runs gofmt and go vet.\n'

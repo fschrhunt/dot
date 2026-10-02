@@ -7,6 +7,10 @@
   https://github.com/fschrhunt/dot && brew install dot`.
 - Releases carry build provenance (`gh attestation verify`), run CI's checks and `govulncheck`
   first, and are installed for real on macOS and Linux. `scripts/release.sh` releases in two runs.
+- `dot update [--check]` replaces an installer or archive install with the latest release, after
+  checking its checksum; `--check` only reports. Homebrew and go install are pointed to their own
+  update. In a terminal, dot mentions a newer release at most once a day (`DOT_NO_UPDATE_CHECK=1`
+  stops it).
 - Fixed: `dot sync` no longer commits or pushes `.state/`. A setup that does not ignore it gets
   the rule added to `.git/info/exclude`, and one where `.state/` is already tracked is refused
   with the way out named, instead of fighting every other machine's pull.

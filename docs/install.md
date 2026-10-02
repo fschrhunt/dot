@@ -10,8 +10,8 @@ curl -fsSL https://fschrhunt.com/dot/install.sh | sh
 
 It downloads the release archive for your system (macOS or Linux, Intel or ARM), checks it
 against the release's `checksums.txt`, and installs `dot` into `~/.local/bin`, saying so if
-that isn't on your `PATH`. Run it again to update. It never edits your shell files. Options,
-after `sh -s --`:
+that isn't on your `PATH`. Run `dot update` to update, or the installer again.
+It never edits your shell files. Options, after `sh -s --`:
 
 ```sh
 curl -fsSL https://fschrhunt.com/dot/install.sh | sh -s -- --version v1.0.0 --dir ~/bin

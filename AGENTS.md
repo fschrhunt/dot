@@ -22,6 +22,8 @@
 - `internal/sync/`: locking, the ssh command and timeouts for git, taking and committing, pull
   (rebase for two-way, ff-only for one-way), push, apply, conflict recording, protecting
   `.state/` from git, and sync logs.
+- `internal/update/`: the latest release, install-method detection, the checksum-verified
+  binary swap, and the once-a-day terminal notice behind `dot update`.
 - `internal/schedule/`: systemd user timer and launchd agent installation and removal.
 - `internal/app/`: status, apply, take, init and help command handlers; `manage.go` has add, forget
   and agents, and `history.go` has log and undo.

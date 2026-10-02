@@ -72,6 +72,7 @@ type Config struct {
 	Paths   setup.Paths
 	Version int64
 	Exclude []string
+	Agents  []Agent
 	Sync
 	Values              map[string]string
 	Machines            map[string]map[string]string
@@ -258,9 +259,9 @@ func syncFor(raw map[string]any, machine string, version int64) (Sync, string) {
 // read yields the defaults.
 func SyncSettings(paths setup.Paths) Sync {
 	var raw map[string]any
-	source, e := os.ReadFile(filepath.Join(paths.Dot, "dot.toml"))
+	source, e := source(paths)
 	if e == nil {
-		_, e = decode(string(source), &raw)
+		_, e = decode(source, &raw)
 	}
 	if e != nil {
 		return DefaultSync(1)
@@ -276,20 +277,30 @@ func SyncSettings(paths setup.Paths) Sync {
 	return s
 }
 
-// Load parses and validates all accepted dot.toml keys, including machines not running here.
-func Load(paths setup.Paths) (*Config, error) {
-	path := filepath.Join(paths.Dot, "dot.toml")
-	if !setup.IsFile(path) {
-		return nil, setup.Fail("no setup at " + paths.Show(paths.Dot) + " (run dot init)")
+// source returns dot.toml's text. The file is optional once a setup has a home/ or agents/
+// folder: its layout is then the configuration, and it reads as a version 2 setup.
+func source(paths setup.Paths) (string, error) {
+	b, e := os.ReadFile(filepath.Join(paths.Dot, "dot.toml"))
+	if os.IsNotExist(e) && (setup.IsDir(filepath.Join(paths.Dot, "home")) || setup.IsDir(filepath.Join(paths.Dot, "agents"))) {
+		return "version = 2\n", nil
 	}
-	var raw map[string]any
-	source, err := os.ReadFile(path)
+	if os.IsNotExist(e) {
+		return "", setup.Fail("no setup at " + paths.Show(paths.Dot) + " (run dot init)")
+	}
+	return string(b), e
+}
+
+// Load parses and validates all accepted dot.toml keys, including machines not running here,
+// and adds the mappings a version 2 setup's home/ and agents/ folders stand for.
+func Load(paths setup.Paths) (*Config, error) {
+	source, err := source(paths)
 	if err != nil {
 		return nil, err
 	}
-	md, err := decode(string(source), &raw)
+	var raw map[string]any
+	md, err := decode(source, &raw)
 	if err != nil {
-		return nil, setup.Fail("dot.toml: " + syntaxError(string(source), err))
+		return nil, setup.Fail("dot.toml: " + syntaxError(source, err))
 	}
 	bad := func(s string) (*Config, error) { return nil, setup.Fail("dot.toml: " + s) }
 	version, problem := versionOf(raw)
@@ -374,6 +385,22 @@ func Load(paths setup.Paths) (*Config, error) {
 				}
 			}
 			c.Maps = append(c.Maps, mp)
+		}
+	}
+	if c.Agents, problem = agentsFrom(raw, md); problem != "" {
+		return bad(problem)
+	}
+	if version >= 2 {
+		rules, problem := onlyFrom(raw, md)
+		if problem != "" {
+			return bad(problem)
+		}
+		problem, e := c.discover(rules)
+		if e != nil {
+			return nil, e
+		}
+		if problem != "" {
+			return nil, setup.Fail(problem)
 		}
 	}
 	return c, c.validate()

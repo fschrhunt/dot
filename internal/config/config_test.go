@@ -85,7 +85,7 @@ func TestNumericValuesUsePythonText(t *testing.T) {
 	testutil.Equal(t, f.Read(f.Paths.Home, "t"), "1000000.0 0.0001 1e+16 1e-05 -0.0")
 }
 
-// TestSyntaxErrorsKeepTomllibDiagnostics protects errors users already see for malformed TOML.
+// TestSyntaxErrorsKeepTomllibDiagnostics protects the errors users see for malformed TOML.
 func TestSyntaxErrorsKeepTomllibDiagnostics(t *testing.T) {
 	f := testutil.New(t)
 	for _, c := range []struct{ text, message string }{
@@ -96,17 +96,22 @@ func TestSyntaxErrorsKeepTomllibDiagnostics(t *testing.T) {
 		{"a = [1 2]\n", "Unclosed array (at line 1, column 8)"},
 		{"a = \"unterminated", "Unterminated string (at end of document)"},
 		{"a = \"bad\\q\"\n", "Unescaped '\\' in a string (at line 1, column 11)"},
-		{"a = { x = 1, }\n", "Invalid initial character for a key part (at line 1, column 14)"},
 		{"[x]\n[x]\n", "Cannot declare ('x',) twice (at line 2, column 3)"},
 		{"a = []\n[a]\n", "Cannot declare ('a',) twice (at line 2, column 3)"},
 		{"a = 01\n", "Expected newline or end of document after a statement (at line 1, column 6)"},
 		{"a = 1 x\n", "Expected newline or end of document after a statement (at line 1, column 7)"},
-		{"a = { b = true\n}", "Unclosed inline table (at line 1, column 15)"},
 		{"a = \"one\ntwo\"\n", "Illegal character '\\n' (at line 1, column 9)"},
 	} {
 		f.Config(c.text, nil)
 		testutil.Equal(t, f.Status(""), testutil.Result{Code: 2, Output: "dot: dot.toml: " + c.message + "\n"})
 	}
+}
+
+// TestTOML11InlineTables accepts TOML 1.1's inline tables: a trailing comma, and one split across lines.
+func TestTOML11InlineTables(t *testing.T) {
+	f := testutil.New(t)
+	f.Config("[files]\n\"a\" = { to = \"~/a\", }\n\"b\" = {\n  to = \"~/b\",\n}\n", map[string]string{"a": "1", "b": "2"})
+	testutil.Equal(t, f.Status(""), testutil.Result{Code: 1, Output: "+ new         ~/a\n+ new         ~/b\n"})
 }
 
 // TestCollisionThroughDanglingParentIsError protects alias validation before destinations exist.

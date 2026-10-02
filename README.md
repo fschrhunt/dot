@@ -20,7 +20,7 @@ and so is each skill: an edit under any name reaches the rest, on every machine.
 ## Install
 
 Download a Linux or macOS binary from [Releases](https://github.com/fschrhunt/dot/releases),
-extract it, and put `dot` on your PATH. Only git is needed at runtime. With Go 1.25 or newer:
+extract it, and put `dot` on your PATH. Only git is needed at runtime. With Go 1.26 or newer:
 
 ```sh
 go install github.com/fschrhunt/dot/cmd/dot@latest

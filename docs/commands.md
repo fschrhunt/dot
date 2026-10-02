@@ -114,7 +114,7 @@ name for this command and still works. See [sync](sync.md) for inspecting the ti
 
 ```sh
 dot help
-# dot: your setup, the same on every machine.
+# dot: the dotfiles manager.
 # ... usage ...
 # Setup ~/.dot on machine laptop.
 # Values ({{name}} in templates, sources and destinations):

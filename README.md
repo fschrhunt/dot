@@ -5,7 +5,7 @@
     <img src="assets/black/wordmark.svg" alt="dot" height="48">
   </picture>
 </p>
-<p align="center">Your setup, the same on every machine.</p>
+<p align="center">The dotfiles manager.</p>
 <p align="center"><a href="https://github.com/fschrhunt/dot/actions/workflows/ci.yml"><img src="https://github.com/fschrhunt/dot/actions/workflows/ci.yml/badge.svg" alt="CI"></a></p>
 
 ---

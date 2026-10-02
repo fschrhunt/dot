@@ -18,7 +18,7 @@ import (
 )
 
 // Usage describes the compatible commands and the added binary version command.
-const Usage = `dot: your setup, the same on every machine.
+const Usage = `dot: the dotfiles manager.
 
 usage:
   dot [status [path]]       show what apply would do; with a path, a diff for it

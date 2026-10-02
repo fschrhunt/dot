@@ -2,9 +2,12 @@
 
 ## Unreleased
 
+- `dot timer` is the new name for `dot install`, which still works.
+- The macOS agent is now labeled `com.fschrhunt.dot`. `dot timer` removes an agent installed
+  under the earlier label `dot`.
 - `[sync] every` sets how often the timer runs `dot sync`, such as `"1m"` or `"1h"`. It defaults
-  to 15 minutes, as before. Run `dot install` again after changing it.
-- `[sync] boot_delay` sets how long after boot the Linux timer first runs. It defaults to 2 minutes.
+  to 15 minutes, as before. Run `dot timer` again after changing it.
+- `[sync] after_boot` sets how long after boot the Linux timer first runs. It defaults to 2 minutes.
 - `[sync] timeout` and `connect_timeout` replace the fixed 60-second git deadline and 5-second
   ssh connection timeout. The defaults are unchanged.
 - `[sync.machine.<name>]` overrides any `[sync]` setting on one machine.
@@ -32,7 +35,7 @@
 - Fixed: a file that becomes a folder (or a folder that becomes a file) in the source converges in
   one apply. The plan now lists deletions before writes.
 - Fixed: pruning empty folders keeps any folder the source still has.
-- Fixed: `dot install` keeps `DOT_MACHINE` in the timer, and escapes quotes, backslashes, `%` and
+- Fixed: `dot timer` keeps `DOT_MACHINE` in the timer, and escapes quotes, backslashes, `%` and
   `$` in the systemd unit.
 - Fixed: wrong value types in `dot.toml` (such as `mirror = "false"` or `version = "1"`) are a
   `dot:` error naming the field.

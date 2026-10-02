@@ -20,7 +20,7 @@ func install(t *testing.T, f *testutil.Fixture) string {
 	t.Helper()
 	installWith(t, f, config.DefaultSync())
 	if runtime.GOOS == "darwin" {
-		return f.Read(f.Paths.Home, "Library/LaunchAgents/dot.plist")
+		return f.Read(f.Paths.Home, "Library/LaunchAgents/com.fschrhunt.dot.plist")
 	}
 	return f.Read(f.Paths.Home, ".config/systemd/user/dot.service")
 }
@@ -47,7 +47,7 @@ func installWith(t *testing.T, f *testutil.Fixture, s config.Sync) {
 // timer returns the part of the installed timer that holds its interval.
 func timer(f *testutil.Fixture) string {
 	if runtime.GOOS == "darwin" {
-		return f.Read(f.Paths.Home, "Library/LaunchAgents/dot.plist")
+		return f.Read(f.Paths.Home, "Library/LaunchAgents/com.fschrhunt.dot.plist")
 	}
 	return f.Read(f.Paths.Home, ".config/systemd/user/dot.timer")
 }
@@ -72,7 +72,7 @@ func TestInstallWritesTheInterval(t *testing.T) {
 	f := testutil.New(t)
 	f.Config("", nil)
 	s := config.DefaultSync()
-	s.Every, s.BootDelay = 90*time.Second, 10*time.Second
+	s.Every, s.AfterBoot = 90*time.Second, 10*time.Second
 	installWith(t, f, s)
 	want := "Description=dot sync every 90 seconds\n\n[Timer]\nOnBootSec=10s\nOnUnitActiveSec=90s\nAccuracySec=6s\n"
 	if runtime.GOOS == "darwin" {

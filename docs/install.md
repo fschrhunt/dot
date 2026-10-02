@@ -44,5 +44,5 @@ export PATH="$HOME/.local/bin:$PATH"
 
 The starter setup is embedded. You can move the binary without keeping the checkout.
 
-After replacing a previous installation, run `dot install` again. The timer will use
+After replacing a previous installation, run `dot timer` again. The timer will use
 that binary's absolute path. Keep the binary there while the timer is installed.

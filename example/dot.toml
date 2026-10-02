@@ -4,7 +4,7 @@ exclude = [".DS_Store", "*.tmp"]     # never copied, never deleted
 
 [sync]
 push = true                          # push local commits the remote lacks (fast-forward only)
-every = "15m"                        # how often the timer syncs; run dot install after changing it
+every = "15m"                        # how often the timer syncs; run dot timer after changing it
 
 [values]                             # {{name}} in templates, sources and destinations
 workspace_root = "~/Code"

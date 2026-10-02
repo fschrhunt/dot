@@ -174,7 +174,7 @@ func run(p setup.Paths) (notes []string, code int, err error) {
 	}
 	notes = append(notes, fmt.Sprintf("%d changed", len(done)-ran))
 	if ran > 0 {
-		notes = append(notes, fmt.Sprintf("%d run", ran))
+		notes = append(notes, fmt.Sprintf("%d ran", ran))
 	}
 	for _, a := range refused {
 		notes = append(notes, plan.Refusal(p, a))

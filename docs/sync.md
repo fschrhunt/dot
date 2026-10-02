@@ -27,10 +27,10 @@ offline machine keeps working, but sync exits 1 so the failure shows. Check the 
 
 ```sh
 cat ~/.dot/.state/last
-# 2026-10-01 12:15:00 laptop pulled; pushed; 2 changed; 1 run
+# 2026-10-01 12:15:00 laptop pulled; pushed; 2 changed; 1 ran
 ```
 
-`1 run` counts the mapping [`run`](config.md#run) commands that ran; it appears only when one did.
+`1 ran` counts the mapping [`run`](config.md#run) commands that ran; it appears only when one did.
 
 The state folder also holds `written.json`, hashes of the files dot last wrote and `dir`
 for managed folder roots. Existing state carries over from the Python version.
@@ -110,14 +110,14 @@ For connection failures, check the remote URL, access and noninteractive authent
 ## Linux timer
 
 ```sh
-dot install
+dot timer
 systemctl --user status dot.timer
 journalctl --user -u dot.service
-dot install --remove
+dot timer --remove
 ```
 
 Units live in `~/.config/systemd/user/`. The first run is scheduled two minutes after boot,
-or after [`[sync] boot_delay`](config.md#syncboot_delay).
+or after [`[sync] after_boot`](config.md#syncafter_boot).
 Later runs use a 15-minute interval, or the one in [`[sync] every`](config.md#syncevery).
 An interval under 15 minutes also sets `AccuracySec`, so systemd does not run it up to a
 minute late. The user service manager must be running.
@@ -125,13 +125,15 @@ minute late. The user service manager must be running.
 ## macOS agent
 
 ```sh
-dot install
-launchctl print "gui/$(id -u)/dot"
+dot timer
+launchctl print "gui/$(id -u)/com.fschrhunt.dot"
 cat ~/.dot/.state/launchd.log
-dot install --remove
+dot timer --remove
 ```
 
-The agent lives in `~/Library/LaunchAgents/dot.plist`. It runs at load and every 900 seconds,
+The agent is `com.fschrhunt.dot`, in `~/Library/LaunchAgents/com.fschrhunt.dot.plist`. An agent
+from an earlier version, labeled `dot`, is removed when the timer is installed or removed.
+It runs at load and every 900 seconds,
 or the interval in [`[sync] every`](config.md#syncevery), while the user session is active.
 
 Both timers keep the installing shell's PATH and any explicit DOT_HOME and DOT_MACHINE.

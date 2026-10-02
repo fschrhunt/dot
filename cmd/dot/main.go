@@ -46,7 +46,7 @@ func dispatch(args []string, out, stderr io.Writer) (int, error) {
 	switch command {
 	case "status":
 		return app.Status(c, first, out)
-	case "install":
+	case "timer", "install":
 		return schedule.Run(paths, c.Sync, slices.Contains(args, "--remove"), out)
 	case "take":
 		if len(args) != 1 {

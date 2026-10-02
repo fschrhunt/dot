@@ -1,4 +1,5 @@
-// Package schedule installs a systemd user timer or launchd agent running this Go binary.
+// Package schedule installs the timer behind dot timer: a systemd user timer or a launchd agent
+// running this Go binary.
 package schedule
 
 import (
@@ -67,8 +68,12 @@ func systemdSpan(d time.Duration) string {
 	return fmt.Sprintf("%ds", d/time.Second)
 }
 
+// label names the launchd agent and its plist. Earlier versions used the bare label "dot", which
+// Run still unloads and deletes so a machine never keeps two agents.
+const label = "com.fschrhunt.dot"
+
 // Run installs or removes the timer in paths.Home, retaining PATH and explicit setup overrides.
-// The timer runs dot sync once per s.Every; on Linux its first run is s.BootDelay after boot.
+// The timer runs dot sync once per s.Every; on Linux its first run is s.AfterBoot after boot.
 func Run(paths setup.Paths, s config.Sync, remove bool, out io.Writer) (int, error) {
 	every := s.Every
 	program, e := os.Executable()
@@ -85,9 +90,14 @@ func Run(paths setup.Paths, s config.Sync, remove bool, out io.Writer) (int, err
 		env = append(env, pair{"DOT_MACHINE", os.Getenv("DOT_MACHINE")})
 	}
 	if runtime.GOOS == "darwin" {
-		plist := filepath.Join(paths.Home, "Library", "LaunchAgents", "dot.plist")
+		agents := filepath.Join(paths.Home, "Library", "LaunchAgents")
+		plist := filepath.Join(agents, label+".plist")
 		domain := fmt.Sprintf("gui/%d", os.Getuid())
 		_ = run(false, "launchctl", "bootout", domain+"/dot")
+		if e := os.Remove(filepath.Join(agents, "dot.plist")); e != nil && !os.IsNotExist(e) {
+			return 2, e
+		}
+		_ = run(false, "launchctl", "bootout", domain+"/"+label)
 		if remove {
 			if e := os.Remove(plist); e != nil && !os.IsNotExist(e) {
 				return 2, e
@@ -100,7 +110,7 @@ func Run(paths setup.Paths, s config.Sync, remove bool, out io.Writer) (int, err
 				return 2, e
 			}
 			var b strings.Builder
-			b.WriteString("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\"><dict>\n<key>Label</key><string>dot</string>\n<key>ProgramArguments</key><array><string>" + escaped(program) + "</string><string>sync</string></array>\n<key>RunAtLoad</key><true/>\n<key>StartInterval</key><integer>" + fmt.Sprint(int64(every/time.Second)) + "</integer>\n<key>EnvironmentVariables</key><dict>")
+			b.WriteString("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\"><dict>\n<key>Label</key><string>" + label + "</string>\n<key>ProgramArguments</key><array><string>" + escaped(program) + "</string><string>sync</string></array>\n<key>RunAtLoad</key><true/>\n<key>StartInterval</key><integer>" + fmt.Sprint(int64(every/time.Second)) + "</integer>\n<key>EnvironmentVariables</key><dict>")
 			for _, p := range env {
 				b.WriteString("<key>" + escaped(p.k) + "</key><string>" + escaped(p.v) + "</string>")
 			}
@@ -138,7 +148,7 @@ func Run(paths setup.Paths, s config.Sync, remove bool, out io.Writer) (int, err
 			if every < 15*time.Minute {
 				accuracy = "AccuracySec=" + systemdSpan(max(every/15, time.Second).Truncate(time.Second)) + "\n"
 			}
-			timer := "[Unit]\nDescription=dot sync every " + span(every) + "\n\n[Timer]\nOnBootSec=" + systemdSpan(s.BootDelay) + "\nOnUnitActiveSec=" + systemdSpan(every) + "\n" + accuracy + "Persistent=true\n\n[Install]\nWantedBy=timers.target\n"
+			timer := "[Unit]\nDescription=dot sync every " + span(every) + "\n\n[Timer]\nOnBootSec=" + systemdSpan(s.AfterBoot) + "\nOnUnitActiveSec=" + systemdSpan(every) + "\n" + accuracy + "Persistent=true\n\n[Install]\nWantedBy=timers.target\n"
 			if e := os.WriteFile(filepath.Join(units, "dot.service"), []byte(service), 0666); e != nil {
 				return 2, e
 			}
@@ -153,7 +163,7 @@ func Run(paths setup.Paths, s config.Sync, remove bool, out io.Writer) (int, err
 			}
 		}
 	} else {
-		return 2, setup.Fail("install supports Linux and macOS, not " + runtime.GOOS)
+		return 2, setup.Fail("the timer supports Linux and macOS, not " + runtime.GOOS)
 	}
 	if remove {
 		fmt.Fprintln(out, "Removed the dot timer.")

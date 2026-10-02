@@ -84,7 +84,7 @@ The live path must exist and belong to a mapping.
 
 ```sh
 dot init
-# Created ~/.dot. Next: edit ~/.dot/dot.toml, run dot apply, then dot install.
+# Created ~/.dot. Next: edit ~/.dot/dot.toml, run dot apply, then dot timer.
 ```
 
 Copies the embedded example and initializes git. Refuses an existing setup folder.
@@ -95,19 +95,20 @@ dot init server:dot.git
 
 Clones that remote instead. Ensures `.state/` is ignored locally.
 
-## install [--remove]
+## timer [--remove]
 
 ```sh
-dot install
+dot timer
 # Installed: dot sync runs every 15 minutes on laptop.
-dot install --remove
+dot timer --remove
 # Removed the dot timer.
 ```
 
 Linux uses a systemd user timer. macOS uses a LaunchAgent.
 The interval is 15 minutes unless [`[sync] every`](config.md#syncevery) sets another.
 The timer runs the binary at its current absolute path and keeps PATH, DOT_HOME and DOT_MACHINE.
-Run install again after moving the binary or changing the interval. See [sync](sync.md) for inspecting the timer.
+Run it again after moving the binary or changing the interval. `dot install` is the earlier
+name for this command and still works. See [sync](sync.md) for inspecting the timer.
 
 ## help / -h / --help
 

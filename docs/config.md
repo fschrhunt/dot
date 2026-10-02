@@ -43,23 +43,23 @@ every = "1m"
 How often the timer runs `dot sync`. Defaults to `"15m"`. Write whole seconds, minutes or
 hours, alone or combined: `"90s"`, `"5m"`, `"1h"`, `"1h30m"`.
 
-`dot install` reads this when it writes the timer, so run `dot install` again on each machine
+`dot timer` reads this when it writes the timer, so run `dot timer` again on each machine
 after changing it:
 
 ```sh
-dot install
+dot timer
 # Installed: dot sync runs every 1 minute on laptop.
 ```
 
-## sync.boot_delay
+## sync.after_boot
 
 ```toml
 [sync]
-boot_delay = "30s"
+after_boot = "30s"
 ```
 
-How long after boot the Linux timer first runs. Defaults to `"2m"`; `"0s"` runs at boot.
-Read by `dot install`, like `every`. macOS runs the first sync when the agent loads.
+How long after boot the Linux timer waits before its first run. Defaults to `"2m"`; `"0s"` runs at boot.
+Read by `dot timer`, like `every`. macOS runs the first sync when the agent loads.
 
 ## sync.timeout and sync.connect_timeout
 

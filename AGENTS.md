@@ -6,7 +6,7 @@
 - One test: `go test ./internal/sync -run '^TestSyncRefusesUncommittedChanges$'`.
 - Checks: `go build ./...`, `go vet ./...`, and `gofmt -l .` (must print nothing).
 - Build the CLI: `go build -o dot ./cmd/dot`. Try the sample with `DOT_HOME=example ./dot help`.
-  Never run `apply`, `sync` or `install` against a real home while developing;
+  Never run `apply`, `sync` or `timer` against a real home while developing;
   point HOME and DOT_HOME at temp folders.
 
 ## Code map

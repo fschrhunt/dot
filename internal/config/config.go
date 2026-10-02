@@ -26,17 +26,17 @@ type Mapping struct {
 }
 
 // Sync holds this machine's [sync] settings, after its [sync.machine.<name>] overrides.
-// Every is the timer's interval and BootDelay its first run after boot on Linux. Timeout stops
+// Every is the timer's interval and AfterBoot the wait before its first run after boot on Linux. Timeout stops
 // each git command and each mapping's run command; ConnectTimeout is given to ssh. Durations
 // are whole seconds.
 type Sync struct {
 	Push                                      bool
-	Every, BootDelay, Timeout, ConnectTimeout time.Duration
+	Every, AfterBoot, Timeout, ConnectTimeout time.Duration
 }
 
 // DefaultSync returns the settings dot uses when dot.toml sets none.
 func DefaultSync() Sync {
-	return Sync{Every: 15 * time.Minute, BootDelay: 2 * time.Minute, Timeout: time.Minute, ConnectTimeout: 5 * time.Second}
+	return Sync{Every: 15 * time.Minute, AfterBoot: 2 * time.Minute, Timeout: time.Minute, ConnectTimeout: 5 * time.Second}
 }
 
 // Config is a validated setup; Names and MachineNames preserve TOML order for help output.
@@ -171,7 +171,7 @@ func setSync(s *Sync, t map[string]any, where string) string {
 		key  string
 		to   *time.Duration
 		zero bool
-	}{{"every", &s.Every, false}, {"boot_delay", &s.BootDelay, true}, {"timeout", &s.Timeout, false}, {"connect_timeout", &s.ConnectTimeout, false}} {
+	}{{"every", &s.Every, false}, {"after_boot", &s.AfterBoot, true}, {"timeout", &s.Timeout, false}, {"connect_timeout", &s.ConnectTimeout, false}} {
 		v, exists := t[f.key]
 		if !exists {
 			continue

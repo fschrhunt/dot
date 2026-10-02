@@ -20,7 +20,7 @@ Fetch the module once with `go mod download`. Tests then run offline in temp hom
 bare git repos. Add one focused test per behavior you change. Keep status and apply on the
 same plan. Check [AGENTS.md](AGENTS.md) for the code map and compatibility conventions.
 
-Never run apply, sync or install against your real home during development.
+Never run apply, sync or timer against your real home during development.
 
 ## Issues
 

@@ -4,7 +4,7 @@
 
 ```sh
 dot init
-# Created ~/.dot. Next: edit ~/.dot/dot.toml, run dot apply, then dot install.
+# Created ~/.dot. Next: edit ~/.dot/dot.toml, run dot apply, then dot timer.
 $EDITOR ~/.dot/dot.toml
 ```
 
@@ -58,7 +58,7 @@ git add .
 git commit -m 'My setup'
 git remote add origin server:dot.git
 git push -u origin HEAD
-dot install
+dot timer
 ```
 
 On the second machine, install the binary, then:
@@ -66,7 +66,7 @@ On the second machine, install the binary, then:
 ```sh
 dot init server:dot.git
 dot apply
-dot install
+dot timer
 ```
 
 Add `[machine.<name>]` overrides before using machine-specific sources. Validation checks every

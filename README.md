@@ -30,7 +30,7 @@ dot init
 $EDITOR ~/.dot/dot.toml
 dot status
 dot apply
-dot install
+dot timer
 ```
 
 Commit your setup changes before syncing. See [the docs](docs/README.md) for installation,

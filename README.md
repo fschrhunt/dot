@@ -14,7 +14,7 @@ Edit your dotfiles where they live. dot takes each edit into a private git repos
 and carries it to your other machines.
 
 It treats your coding agents as one audience. Claude Code calls its instructions `CLAUDE.md`;
-Codex, opencode and others call theirs `AGENTS.md`. To dot they are one file with several names,
+Codex, OpenCode and others call theirs `AGENTS.md`. To dot they are one file with several names,
 and so is each skill: an edit under any name reaches the rest, on every machine.
 
 ## Install

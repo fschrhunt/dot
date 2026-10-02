@@ -11,7 +11,7 @@
     rendered file goes back into its template.
   - The setup's folders are its configuration: `home/` mirrors the home folder and `agents/` is
     shared with every installed agent, so `agents/instructions.md` is written as `CLAUDE.md` for
-    Claude Code and `AGENTS.md` for Codex, opencode and pi. `dot.toml` is optional.
+    Claude Code and `AGENTS.md` for Codex, OpenCode and Pi. `dot.toml` is optional.
   - `[agent.<name>]` adds an agent or changes a built-in one, and `[only]` limits a path to some
     agents or machines. A name ending in `.tmpl` is a template.
   - `dot add` and `dot forget` start and stop managing a path. `dot agents` prints the agents,

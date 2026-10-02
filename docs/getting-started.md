@@ -36,7 +36,7 @@ dot add ~/.claude/CLAUDE.md
 # + new         ~/.config/opencode/AGENTS.md
 ```
 
-Claude Code calls its instructions `CLAUDE.md`; Codex and opencode call theirs `AGENTS.md`. To
+Claude Code calls its instructions `CLAUDE.md`; Codex and OpenCode call theirs `AGENTS.md`. To
 dot they are one file with several names. A skill works the same way:
 
 ```sh

@@ -228,6 +228,18 @@ func TestSyncDoesNotTakeACredential(t *testing.T) {
 	}
 }
 
+// TestSyncDoesNotTakeAnEditThatBreaksJSON pins the behavior: an edit that stops a JSON file parsing stays out of the setup and is left in place.
+func TestSyncDoesNotTakeAnEditThatBreaksJSON(t *testing.T) {
+	f := testutil.New(t)
+	twoWay(t, f, "a = \"~/a.json\"\n", map[string]string{"a": "{\"x\": 1}\n"})
+	f.Write(f.Paths.Home, map[string]string{"a.json": "{\"x\": 1,\n}\n"})
+	testutil.Equal(t, f.Sync().Code, 1)
+	testutil.Equal(t, f.Read(f.Paths.Dot, "a")+f.Read(f.Paths.Home, "a.json"), "{\"x\": 1}\n{\"x\": 1,\n}\n")
+	if last := f.Read(f.Paths.State, "last"); !strings.Contains(last, "not taken: ~/a.json (no longer parses (line 2:") {
+		t.Fatal(last)
+	}
+}
+
 // TestSyncRestoresADeletedFile pins the behavior: a deleted live file is restored, never taken as a deletion.
 func TestSyncRestoresADeletedFile(t *testing.T) {
 	f := testutil.New(t)

@@ -41,3 +41,23 @@ func TestPrintSaysWhyATakeIsHeldBack(t *testing.T) {
 	plan.Print(&out, f.Paths, []plan.Action{{Mark: "!", Path: f.Paths.Home + "/a", Op: "take", Note: "looks like a credential; add it yourself"}})
 	testutil.Equal(t, out.String(), "! edited here ~/a (looks like a credential; add it yourself)\n")
 }
+
+// TestBrokenReadsJSONCAndTOML pins the behavior: JSONC's comments and trailing commas parse, and
+// an edit that breaks JSONC or TOML, or any edit to a base that never parsed, is judged as such.
+func TestBrokenReadsJSONCAndTOML(t *testing.T) {
+	jsonc := "{\n  // a comment, with a comma,\n  \"url\": \"http://x/*y*/\", /* block */\n  \"a\": [1, 2,],\n}\n"
+	for _, c := range []struct {
+		path, base, edited string
+		broken             bool
+	}{
+		{"a.jsonc", jsonc, jsonc + "\n// more\n", false},
+		{"a.jsonc", jsonc, "{\n  \"a\": 1\n  \"b\": 2\n}\n", true},
+		{"a.toml", "x = 1\n", "x = 1\ny = \n", true},
+		{"a.json", "not json", "still not json", false},
+		{"a.txt", "1", "{", false},
+	} {
+		if got := plan.Broken(c.path, []byte(c.base), []byte(c.edited)) != ""; got != c.broken {
+			t.Errorf("%s %q: broken = %v", c.path, c.edited, got)
+		}
+	}
+}

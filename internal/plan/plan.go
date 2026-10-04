@@ -3,6 +3,7 @@ package plan
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -11,6 +12,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/BurntSushi/toml"
 
 	"github.com/fschrhunt/dot/internal/config"
 	"github.com/fschrhunt/dot/internal/setup"
@@ -193,6 +196,101 @@ func Secret(base, edited []byte) bool {
 	return false
 }
 
+// Broken reports why edited, the new text of the file at path, no longer parses in the format
+// its extension names when base still does: JSON (.json), JSON with comments and trailing
+// commas (.jsonc) and TOML (.toml). It returns "" for any other file, for a base that does not
+// parse either, and for an edit that parses. Like Secret it is a seat belt: it checks syntax,
+// not meaning.
+func Broken(path string, base, edited []byte) string {
+	var parse func([]byte) error
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".json":
+		parse = parseJSON
+	case ".jsonc":
+		parse = func(b []byte) error { return parseJSON(plainJSON(b)) }
+	case ".toml":
+		parse = func(b []byte) error {
+			var v map[string]any
+			_, e := toml.Decode(string(b), &v)
+			return e
+		}
+	default:
+		return ""
+	}
+	if parse(base) != nil {
+		return ""
+	}
+	if e := parse(edited); e != nil {
+		return e.Error()
+	}
+	return ""
+}
+
+// parseJSON checks that b is one JSON value, naming the line of a syntax error.
+func parseJSON(b []byte) error {
+	var v any
+	e := json.Unmarshal(b, &v)
+	if s, ok := e.(*json.SyntaxError); ok {
+		return fmt.Errorf("line %d: %s", bytes.Count(b[:s.Offset], []byte("\n"))+1, s)
+	}
+	return e
+}
+
+// plainJSON blanks the comments and trailing commas JSONC allows, keeping every offset so an
+// error still names the right line. An unterminated comment is left for the parser to refuse.
+func plainJSON(b []byte) []byte {
+	out := bytes.Clone(b)
+	blank := func(from, to int) {
+		for ; from < to; from++ {
+			if out[from] != '\n' {
+				out[from] = ' '
+			}
+		}
+	}
+	str := false
+	for i := 0; i < len(out); i++ {
+		switch c := out[i]; {
+		case str && c == '\\':
+			i++
+		case c == '"':
+			str = !str
+		case str:
+		case c == '/' && i+1 < len(out) && out[i+1] == '/':
+			end := bytes.IndexByte(out[i:], '\n')
+			if end < 0 {
+				end = len(out) - i
+			}
+			blank(i, i+end)
+			i += end
+		case c == '/' && i+1 < len(out) && out[i+1] == '*':
+			end := bytes.Index(out[i+2:], []byte("*/"))
+			if end < 0 {
+				return out
+			}
+			blank(i, i+end+4)
+			i += end + 3
+		}
+	}
+	str = false
+	for i := 0; i < len(out); i++ {
+		switch c := out[i]; {
+		case str && c == '\\':
+			i++
+		case c == '"':
+			str = !str
+		case !str && c == ',':
+			j := i + 1
+			for j < len(out) && strings.IndexByte(" \t\r\n", out[j]) >= 0 {
+				j++
+			}
+			if j < len(out) && (out[j] == '}' || out[j] == ']') {
+				out[i] = ' '
+			}
+		}
+	}
+	return out
+}
+
 // found is a live regular file a take could copy into the setup.
 type found struct {
 	path, sig string
@@ -216,9 +314,9 @@ func look(q string, settle time.Duration) (found, bool, error) {
 }
 
 // take decides one group of live files that would all become the same source file. They are
-// taken when they agree, have settled, add nothing that looks like a credential, and source can
-// turn their bytes into the source's; then every destination of that source wants the live
-// bytes. Otherwise each is held back: quietly when it is only unsettled, and as a refused take
+// taken when they agree, have settled, add nothing that looks like a credential, still parse
+// when they parsed before (see Broken), and source can turn their bytes into the source's; then
+// every destination of that source wants the live bytes. Otherwise each is held back: quietly when it is only unsettled, and as a refused take
 // with its reason when it needs the user. source is nil for a file copied as it is; for a
 // template it undoes the rendering and returns why it cannot.
 func take(p *Plan, paths setup.Paths, src string, base []byte, group []found, dests []string, held map[string]bool, source func([]byte) ([]byte, string)) error {
@@ -228,6 +326,8 @@ func take(p *Plan, paths setup.Paths, src string, base []byte, group []found, de
 		note = "edited differently under another of its names; dot take one of them to keep it"
 	} else if Secret(base, first.data) {
 		note = "looks like a credential; if it belongs in the setup, dot take " + paths.Show(first.path) + " and commit it yourself"
+	} else if why := Broken(first.path, base, first.data); why != "" {
+		note = "no longer parses (" + why + "); fix it, or dot take " + paths.Show(first.path) + " to keep it as it is"
 	} else if source != nil {
 		stored, note = source(first.data)
 	}

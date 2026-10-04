@@ -1,5 +1,12 @@
 # dot releases
 
+## Unreleased
+
+- `dot sync` no longer takes an edit that stops a `.json`, `.jsonc` or `.toml` file parsing when
+  the setup's version parses. The edit stays on that machine and is reported with the line at
+  fault (`! edited here ~/x.json (no longer parses (line 4: ...))`) until it is fixed, or kept
+  with `dot take`, so a half-typed config never reaches the other machines.
+
 ## v1.0.0 · 2026-10-02
 
 - Install with `curl -fsSL https://fschrhunt.com/dot/install.sh | sh` (checksum-verified, into

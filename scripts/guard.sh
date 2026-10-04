@@ -34,6 +34,9 @@ if ! prod_go | xargs grep -l 'plan.Secret' | grep -q 'sync'; then
 fi
 grep -q 'plan.Secret' internal/app/manage.go || bad "dot add no longer gates on plan.Secret"
 
+# 4b. The syntax gate runs on every take: an edit that breaks a config must not spread.
+grep -q 'Broken(first.path' internal/plan/plan.go || bad "take no longer gates on plan.Broken"
+
 # 5. protectState runs before take and pull; committed bookkeeping would otherwise own the
 #    repository's history of every machine.
 grep -q 'protectState()' internal/sync/sync.go || bad "sync no longer protects .state/ from commits"

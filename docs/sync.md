@@ -45,6 +45,10 @@ A version 1 setup, or a machine with `[sync] take = false`, skips steps 2 and 3,
   token with a well-known prefix is held back and reported. Sync also refuses to commit such a
   line however it reached the setup: if it belongs there, `dot take <path>` and commit it
   yourself. This is a seat belt, not a scanner: do not rely on it to keep secrets out.
+- **Take an edit that breaks a file's syntax.** An edit that stops a `.json`, `.jsonc` or `.toml`
+  file parsing, when the setup's version parses, is held back and reported with the line at
+  fault, so a half-typed config never reaches other machines. Fix the file and the next sync
+  takes it; if the file is right as it is, `dot take <path>`.
 - **Commit a setup that does not load.** If an edit inside `~/.dot` leaves `dot.toml` or a mapping
   broken, sync stops and names what to fix, so a half-finished edit never reaches other machines.
 - **Take an edit to a line a template fills in.** An edit to a rendered file goes back into its

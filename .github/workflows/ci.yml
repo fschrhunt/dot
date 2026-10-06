@@ -18,13 +18,8 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.26'
-      - run: test -z "$(gofmt -l .)"
-      - run: go vet ./...
-      - run: go build ./...
-      - run: go test ./...
-      - run: shellcheck install.sh x scripts/*.sh .githooks/pre-commit
-      - run: ./scripts/guard.sh
-      - run: ./scripts/smoke.sh
+      - run: ./x check
+      - run: ./x smoke
       # The installer people run, against the latest release.
       - run: sh install.sh --dir "$RUNNER_TEMP/dot" && "$RUNNER_TEMP/dot/dot" --version
       - run: ./x bench
@@ -37,9 +32,9 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.26'
-      - run: test -z "$(gofmt -l .)"
-      - run: go vet ./...
-      - run: go test ./...
-      - run: ./scripts/guard.sh
+      - run: ./x fmt --check
+      - run: ./x lint
+      - run: ./x test
+      - run: ./x guard
       # The installer people run, against the latest release.
       - run: sh install.sh --dir "$RUNNER_TEMP/dot" && "$RUNNER_TEMP/dot/dot" --version

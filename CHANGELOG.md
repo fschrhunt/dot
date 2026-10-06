@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Make `./x` help and argument handling consistent and share its checks with CI;
+  simplify PR verification guidance without changing repository-specific coverage.
+
 - `dot sync` no longer takes an edit that stops a `.json`, `.jsonc` or `.toml` file parsing when
   the setup's version parses. The edit stays on that machine and is reported with the line at
   fault (`! edited here ~/x.json (no longer parses (line 4: ...))`) until it is fixed, or kept

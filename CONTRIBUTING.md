@@ -37,7 +37,7 @@ Homebrew formula (`scripts/formula.sh`), and installs the release for real on bo
 
 Only the `formula` job writes to main. It runs in the `release` environment, which only `v*`
 tags can use, and pushes with that environment's `RELEASE_DEPLOY_KEY` secret: a deploy key that
-main's ruleset lets past its pull request rule. Nothing else in the repository can.
+main's protection policy explicitly permits it. Nothing else in the repository can.
 
 ## Issues
 

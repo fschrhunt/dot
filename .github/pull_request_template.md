@@ -1,8 +1,10 @@
 ## What and why
 
-## How it was tested
+<!-- Explain the problem and resulting behavior; note relevant docs/changelog and focused tests. -->
 
-- [ ] `./x check` passes (fmt, vet, build, tests, guard)
-- [ ] `./x smoke` passes for end-to-end changes
-- [ ] One test per behavior change
-- [ ] CHANGELOG.md entry for user-visible changes
+## Verification
+
+- `./x check`:
+- `./x smoke` (for end-to-end changes):
+
+<!-- Record results, including failures; briefly explain anything N/A. -->

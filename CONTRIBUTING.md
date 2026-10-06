@@ -5,14 +5,18 @@ An extra package, dependency or option has to earn its place. Removing complexit
 
 ## Setup and tests
 
-Use Go 1.26 or newer:
+Use Go 1.26 or newer and shellcheck:
 
 ```sh
 git clone https://github.com/fschrhunt/dot
 cd dot
 ./x hooks        # run gofmt and go vet on staged Go files before each commit
-./x check        # the whole gate: fmt, vet, build, tests, guard
+./x check        # the whole gate: fmt, vet, build, tests, shellcheck, guard
 ```
+
+`./x` defaults to the non-mutating `check`. `./x --help` lists its targets;
+`./x fmt --check` checks formatting without writing. `./x test` and `./x build` forward
+Go arguments, for example `./x test ./internal/sync -run TestSyncRefusesUncommittedChanges`.
 
 `./x` is the one entry point: CI runs the same commands, so local and remote never
 disagree about green. `./x smoke` exercises the built binary end to end in a throwaway
